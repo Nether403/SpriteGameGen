@@ -12,6 +12,8 @@
 # --- Generated project assets ---
 backend/projects/
 projects/
+# Manual smoke-test outputs
+scripts/smoke_out/
 
 # --- Python ---
 __pycache__/

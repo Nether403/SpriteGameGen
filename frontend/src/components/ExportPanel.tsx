@@ -1,4 +1,5 @@
-// Export step: choose atlas format, pack + download sheet and atlas.
+// Export step: choose atlas format, grid columns, and padding; pack + download
+// the sheet and atlas.
 import { useState } from "react";
 
 import { exportProject, type ExportFormat } from "../api/client";
@@ -7,6 +8,8 @@ import { useProjectStore } from "../state/project";
 export function ExportPanel() {
   const { projectId, exportResult, setExport } = useProjectStore();
   const [format, setFormat] = useState<ExportFormat>("json");
+  const [padding, setPadding] = useState(0);
+  const [cols, setCols] = useState<number | "">("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -17,7 +20,12 @@ export function ExportPanel() {
     setBusy(true);
     setError(null);
     try {
-      setExport(await exportProject(projectId, format));
+      setExport(
+        await exportProject(projectId, format, {
+          padding,
+          cols: cols === "" ? null : cols,
+        }),
+      );
     } catch (e) {
       setError(e instanceof Error ? e.message : "Export failed.");
     } finally {
@@ -37,6 +45,25 @@ export function ExportPanel() {
         <option value="json">JSON</option>
         <option value="xml">XML</option>
       </select>
+
+      <label htmlFor="cols">Columns (blank = single row)</label>
+      <input
+        id="cols"
+        type="number"
+        min={1}
+        value={cols}
+        placeholder="auto"
+        onChange={(e) => setCols(e.target.value === "" ? "" : Number(e.target.value))}
+      />
+
+      <label htmlFor="padding">Padding (px between frames)</label>
+      <input
+        id="padding"
+        type="number"
+        min={0}
+        value={padding}
+        onChange={(e) => setPadding(Math.max(0, Number(e.target.value) || 0))}
+      />
 
       <button onClick={onExport} disabled={disabled}>
         {busy ? "Packing…" : "Export sprite sheet"}
