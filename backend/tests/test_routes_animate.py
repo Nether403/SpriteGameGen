@@ -132,6 +132,23 @@ async def test_animate_partial_failure_marks_frame_failed(tmp_path):
     assert sum(1 for f in frames if f["status"] == "ok") == 3
 
 
+async def test_animate_frames_share_identical_size_antijitter(client, app_and_store):
+    """Shared-bbox alignment: every successful frame must be the same size so the
+    character does not resize or shift between frames during playback."""
+    _, store, _ = app_and_store
+    pid = await _generate(client)
+    resp = await client.post(
+        "/animate", json={"project_id": pid, "action": "walk", "frames": 4}
+    )
+    frames = resp.json()["frames"]
+    sizes = {
+        store.load_image(pid, f"frame_{f['index']}").size
+        for f in frames
+        if f["status"] == "ok"
+    }
+    assert len(sizes) == 1  # all identical
+
+
 async def test_animate_unknown_action_422(client, app_and_store):
     pid = await _generate(client)
     resp = await client.post("/animate", json={"project_id": pid, "action": "fly"})

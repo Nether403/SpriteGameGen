@@ -11,11 +11,12 @@ GET /presets exposes the action table so the frontend can populate its picker.
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from PIL import Image
 
 from app.deps import get_gemini_client, get_store
 from app.models import AnimateRequest, Frame, FrameStatus, Style
 from app.pipeline import background, pixelate, trim
-from app.pipeline.trim import EmptyImageError
+from app.pipeline.trim import DegenerateBBoxError, EmptyImageError
 from app.services import prompt_builder
 from app.services.gemini_client import GeminiClient, GeminiError, SafetyBlockedError
 from app.storage.project_store import ProjectStore
@@ -61,29 +62,52 @@ def animate(
     total = _resolve_frame_count(preset, req.frames)
     remover = getattr(request.app.state, "remover", None)
 
-    frames: list[Frame] = []
+    # Phase 1: generate + background-remove each frame. Frames are NOT cropped
+    # here — cropping happens after all frames exist so they can share one
+    # bounding box (anti-jitter). Failures are recorded and skipped.
+    cut_by_index: dict[int, Image.Image] = {}
+    failed: set[int] = set()
     for index in range(total):
         prompt = prompt_builder.frame_prompt(req.action, index, total)
         try:
             edited = gemini.edit(base, prompt)
-            cut = background.remove(edited, remover=remover)
-            sprite = trim.autocrop(cut, padding=0)
-            if project.style is Style.PIXEL:
-                sprite = pixelate.quantize(sprite)
-        except (GeminiError, SafetyBlockedError, EmptyImageError):
-            # Partial-failure tolerant: record the gap and keep going.
-            frames.append(Frame(index=index, url=None, status=FrameStatus.FAILED))
-            continue
+            cut_by_index[index] = background.remove(edited, remover=remover)
+        except (GeminiError, SafetyBlockedError):
+            failed.add(index)
 
-        name = f"frame_{index}"
-        store.save_image(req.project_id, name, sprite)
-        frames.append(
-            Frame(
-                index=index,
-                url=f"/projects/{req.project_id}/{name}.png",
-                status=FrameStatus.OK,
+    # Phase 2: shared-bbox alignment across the successful frames only, so the
+    # character never resizes or shifts between frames.
+    ok_indices = sorted(cut_by_index)
+    aligned_by_index: dict[int, Image.Image] = {}
+    if ok_indices:
+        ordered = [cut_by_index[i] for i in ok_indices]
+        try:
+            box = trim.shared_bbox(ordered)
+            aligned = trim.align_to_bbox(ordered, box, padding=0)
+        except (EmptyImageError, DegenerateBBoxError):
+            # No usable content in any frame — treat them all as failures.
+            failed.update(ok_indices)
+            aligned = []
+        for i, img in zip(ok_indices, aligned):
+            if project.style is Style.PIXEL:
+                img = pixelate.quantize(img)
+            aligned_by_index[i] = img
+
+    # Phase 3: persist and build the frame manifest, preserving frame order.
+    frames: list[Frame] = []
+    for index in range(total):
+        if index in aligned_by_index:
+            name = f"frame_{index}"
+            store.save_image(req.project_id, name, aligned_by_index[index])
+            frames.append(
+                Frame(
+                    index=index,
+                    url=f"/projects/{req.project_id}/{name}.png",
+                    status=FrameStatus.OK,
+                )
             )
-        )
+        else:
+            frames.append(Frame(index=index, url=None, status=FrameStatus.FAILED))
 
     project.frames = frames
     project.action = req.action
