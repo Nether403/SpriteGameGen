@@ -1,0 +1,39 @@
+# --- Service-account credentials (NEVER commit) ---
+# Ignore the downloaded Google service-account key at repo root by name.
+# NOT a blanket *.json — that would also ignore project.json manifests and
+# frontend config files.
+/project-*.json
+
+# --- Env ---
+.env
+.env.*
+!.env.example
+
+# --- Generated project assets ---
+backend/projects/
+projects/
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- Node / frontend ---
+node_modules/
+frontend/dist/
+frontend/.vite/
+*.local
+
+# --- OS / editor ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
