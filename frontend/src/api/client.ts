@@ -84,6 +84,58 @@ export async function exportProject(
   return unwrap<ExportResult>(res);
 }
 
+export interface AnimateResult {
+  project_id: string;
+  action: string;
+  fps: number;
+  frames: Frame[];
+}
+
+// POST /animate — expand the base sprite into an animation. `frames` omitted
+// lets the backend use the preset default count.
+export async function animate(
+  projectId: string,
+  action: string,
+  opts: { frames?: number | null; fps?: number } = {},
+): Promise<AnimateResult> {
+  const res = await fetch("/animate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      project_id: projectId,
+      action,
+      frames: opts.frames ?? null,
+      fps: opts.fps ?? 8,
+    }),
+  });
+  return unwrap<AnimateResult>(res);
+}
+
+// POST /animate/frame — regenerate a single frame in place (FrameStrip hatch).
+export async function regenerateFrame(
+  projectId: string,
+  index: number,
+): Promise<Frame> {
+  const res = await fetch("/animate/frame", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ project_id: projectId, index }),
+  });
+  return unwrap<Frame>(res);
+}
+
+export interface Preset {
+  action: string;
+  min_frames: number;
+  max_frames: number;
+  default_frames: number;
+  pose: string;
+}
+
+export async function listPresets(): Promise<Preset[]> {
+  return unwrap<Preset[]>(await fetch("/presets"));
+}
+
 export async function listProjects(): Promise<Project[]> {
   return unwrap<Project[]>(await fetch("/projects"));
 }

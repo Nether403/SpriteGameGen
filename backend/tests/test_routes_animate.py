@@ -160,6 +160,67 @@ async def test_animate_unknown_project_404(client):
     assert resp.status_code == 404
 
 
+async def test_regenerate_frame_replaces_single_frame(client, app_and_store):
+    _, store, _ = app_and_store
+    pid = await _generate(client)
+    await client.post("/animate", json={"project_id": pid, "action": "walk", "frames": 4})
+
+    # capture sibling size to assert the regenerated frame matches it
+    sibling_size = store.load_image(pid, "frame_0").size
+
+    resp = await client.post("/animate/frame", json={"project_id": pid, "index": 2})
+    assert resp.status_code == 200
+    frame = resp.json()
+    assert frame["index"] == 2
+    assert frame["status"] == "ok"
+    assert frame["url"].endswith("frame_2.png")
+
+    # regenerated frame keeps sibling size (no jitter)
+    assert store.load_image(pid, "frame_2").size == sibling_size
+    # manifest updated in place, still 4 frames
+    project = store.read_manifest(pid)
+    assert len(project.frames) == 4
+    assert project.frames[2].status.value == "ok"
+
+
+async def test_regenerate_failed_frame_recovers_it(tmp_path):
+    # first frame index 1 fails during initial animate, then regenerate succeeds
+    app, store, fake = _make(tmp_path, fail_on={1})
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        pid = await _generate(c)
+        await c.post("/animate", json={"project_id": pid, "action": "walk", "frames": 4})
+        # confirm frame 1 failed
+        proj = store.read_manifest(pid)
+        assert proj.frames[1].status.value == "failed"
+
+        # clear the failure and regenerate just that frame
+        fake.fail_on = set()
+        resp = await c.post("/animate/frame", json={"project_id": pid, "index": 1})
+
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "ok"
+    assert store.read_manifest(pid).frames[1].status.value == "ok"
+
+
+async def test_regenerate_frame_out_of_range_422(client, app_and_store):
+    pid = await _generate(client)
+    await client.post("/animate", json={"project_id": pid, "action": "walk", "frames": 4})
+    resp = await client.post("/animate/frame", json={"project_id": pid, "index": 99})
+    assert resp.status_code == 422
+
+
+async def test_regenerate_frame_unanimated_project_422(client, app_and_store):
+    pid = await _generate(client)  # generated but never animated
+    resp = await client.post("/animate/frame", json={"project_id": pid, "index": 0})
+    assert resp.status_code == 422
+
+
+async def test_regenerate_frame_unknown_project_404(client):
+    resp = await client.post("/animate/frame", json={"project_id": "nope", "index": 0})
+    assert resp.status_code == 404
+
+
 async def test_animate_edit_prompts_are_base_anchored(client, app_and_store):
     _, _, fake = app_and_store
     pid = await _generate(client)

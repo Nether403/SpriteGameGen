@@ -5,10 +5,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   ApiError,
+  animate,
   deleteProject,
   exportProject,
   generate,
+  listPresets,
   listProjects,
+  regenerateFrame,
 } from "./client";
 
 function mockFetch(response: {
@@ -112,6 +115,66 @@ describe("exportProject", () => {
       padding: 0,
       cols: null,
     });
+  });
+});
+
+describe("animate", () => {
+  it("POSTs project id + action, defaulting frames to null and fps to 8", async () => {
+    const fetchMock = mockFetch({
+      ok: true,
+      json: async () => ({ project_id: "p1", action: "walk", fps: 8, frames: [] }),
+    });
+
+    await animate("p1", "walk");
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/animate");
+    expect(JSON.parse(init.body)).toEqual({
+      project_id: "p1",
+      action: "walk",
+      frames: null,
+      fps: 8,
+    });
+  });
+
+  it("passes through explicit frames + fps", async () => {
+    const fetchMock = mockFetch({
+      ok: true,
+      json: async () => ({ project_id: "p1", action: "run", fps: 12, frames: [] }),
+    });
+
+    await animate("p1", "run", { frames: 6, fps: 12 });
+
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
+      project_id: "p1",
+      action: "run",
+      frames: 6,
+      fps: 12,
+    });
+  });
+});
+
+describe("regenerateFrame", () => {
+  it("POSTs /animate/frame with project id + index", async () => {
+    const fetchMock = mockFetch({
+      ok: true,
+      json: async () => ({ index: 2, url: "/projects/p1/frame_2.png", status: "ok" }),
+    });
+
+    const frame = await regenerateFrame("p1", 2);
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/animate/frame");
+    expect(JSON.parse(init.body)).toEqual({ project_id: "p1", index: 2 });
+    expect(frame.status).toBe("ok");
+  });
+});
+
+describe("listPresets", () => {
+  it("GETs /presets", async () => {
+    const fetchMock = mockFetch({ ok: true, json: async () => [] });
+    await listPresets();
+    expect(fetchMock.mock.calls[0][0]).toBe("/presets");
   });
 });
 

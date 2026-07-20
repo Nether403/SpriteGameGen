@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from PIL import Image
+from pydantic import BaseModel, Field
 
 from app.deps import get_gemini_client, get_store
 from app.models import AnimateRequest, Frame, FrameStatus, Style
@@ -120,3 +121,100 @@ def animate(
         "fps": req.fps,
         "frames": [f.model_dump() for f in frames],
     }
+
+
+class RegenerateFrameRequest(BaseModel):
+    """Regenerate a single frame in-place (FrameStrip escape hatch, spec §4).
+
+    The action/frame-count come from the project's stored animation metadata so
+    the per-frame prompt matches the rest of the cycle.
+    """
+
+    project_id: str
+    index: int = Field(ge=0)
+
+
+def _fit_to_size(img: Image.Image, size: tuple[int, int]) -> Image.Image:
+    """Center ``img``'s content on a transparent canvas of ``size``.
+
+    A regenerated frame is trimmed to its own content, then placed on a canvas
+    matching the sibling frames so playback keeps the shared-bbox size (no
+    resize/jitter). Content larger than the canvas is downscaled to fit.
+    """
+    cropped = trim.autocrop(img, padding=0)
+    cw, ch = cropped.size
+    tw, th = size
+    if cw > tw or ch > th:
+        scale = min(tw / cw, th / ch)
+        cropped = cropped.resize(
+            (max(1, int(cw * scale)), max(1, int(ch * scale))), Image.LANCZOS
+        )
+        cw, ch = cropped.size
+    canvas = Image.new("RGBA", size, (0, 0, 0, 0))
+    canvas.paste(cropped, ((tw - cw) // 2, (th - ch) // 2))
+    return canvas
+
+
+@router.post("/animate/frame")
+def regenerate_frame(
+    req: RegenerateFrameRequest,
+    request: Request,
+    gemini: GeminiClient = Depends(get_gemini_client),
+    store: ProjectStore = Depends(get_store),
+):
+    try:
+        project = store.read_manifest(req.project_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="project not found")
+
+    if project.action is None:
+        raise HTTPException(status_code=422, detail="project has not been animated")
+
+    total = len(project.frames)
+    if not (0 <= req.index < total):
+        raise HTTPException(
+            status_code=422, detail=f"frame index {req.index} out of range"
+        )
+
+    try:
+        base = store.load_image(req.project_id, "sprite")
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="project has no base sprite")
+
+    # Target size = an existing OK sibling frame, so the regenerated frame stays
+    # size-consistent with the rest of the cycle. Fall back to the base sprite's
+    # trimmed size when no sibling has succeeded yet.
+    target_size: tuple[int, int] | None = None
+    for f in project.frames:
+        if f.index != req.index and f.status is FrameStatus.OK:
+            target_size = store.load_image(req.project_id, f"frame_{f.index}").size
+            break
+    if target_size is None:
+        target_size = trim.autocrop(base, padding=0).size
+
+    remover = getattr(request.app.state, "remover", None)
+    prompt = prompt_builder.frame_prompt(project.action, req.index, total)
+    try:
+        edited = gemini.edit(base, prompt)
+        cut = background.remove(edited, remover=remover)
+        sprite = _fit_to_size(cut, target_size)
+        if project.style is Style.PIXEL:
+            sprite = pixelate.quantize(sprite)
+        status = FrameStatus.OK
+    except (GeminiError, SafetyBlockedError, EmptyImageError, DegenerateBBoxError):
+        status = FrameStatus.FAILED
+
+    if status is FrameStatus.OK:
+        name = f"frame_{req.index}"
+        store.save_image(req.project_id, name, sprite)
+        frame = Frame(
+            index=req.index,
+            url=f"/projects/{req.project_id}/{name}.png",
+            status=FrameStatus.OK,
+        )
+    else:
+        frame = Frame(index=req.index, url=None, status=FrameStatus.FAILED)
+
+    project.frames[req.index] = frame
+    store.write_manifest(req.project_id, project)
+    return frame.model_dump()
