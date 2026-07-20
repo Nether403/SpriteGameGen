@@ -44,6 +44,18 @@ class ProjectStore:
         _check_name(pid, "project id")
         shutil.rmtree(self.root / pid, ignore_errors=True)
 
+    def asset_path(self, pid: str, filename: str) -> Path:
+        """Resolve a project asset path, rejecting traversal. Raises FileNotFoundError
+        if the asset does not exist."""
+        stem, _, ext = filename.rpartition(".")
+        _check_name(stem or filename, "file name")
+        if ext:
+            _check_name(ext, "file extension")
+        path = self._project_dir(pid) / filename
+        if not path.is_file():
+            raise FileNotFoundError(path)
+        return path
+
     # --- images ---
     def save_image(self, pid: str, name: str, img: Image.Image) -> Path:
         _check_name(name, "image name")
@@ -59,6 +71,17 @@ class ProjectStore:
             raise FileNotFoundError(path)
         with Image.open(path) as im:
             return im.convert("RGBA")
+
+    # --- text assets (atlas files) ---
+    def write_text(self, pid: str, filename: str, content: str) -> Path:
+        stem, _, ext = filename.rpartition(".")
+        _check_name(stem or filename, "file name")
+        if ext:
+            _check_name(ext, "file extension")
+        path = self._project_dir(pid) / filename
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8", newline="")
+        return path
 
     # --- manifest ---
     def write_manifest(self, pid: str, project: Project) -> Path:
