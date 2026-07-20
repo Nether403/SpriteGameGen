@@ -31,6 +31,10 @@ node_modules/
 frontend/dist/
 frontend/.vite/
 *.local
+# TypeScript build outputs (vite.config.ts is the source of truth)
+*.tsbuildinfo
+frontend/vite.config.d.ts
+frontend/vite.config.js
 
 # --- OS / editor ---
 .DS_Store
