@@ -27,7 +27,7 @@ export function ExportPanel() {
 
   return (
     <section className="panel">
-      <h2>2. Export</h2>
+      <h2>3. Export</h2>
       <label htmlFor="format">Atlas format</label>
       <select
         id="format"

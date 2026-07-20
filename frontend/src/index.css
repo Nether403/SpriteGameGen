@@ -34,6 +34,11 @@ header p {
   align-items: start;
 }
 
+/* The Animate panel holds the player + frame strip, so give it full width. */
+.steps > section:nth-child(2) {
+  grid-column: 1 / -1;
+}
+
 .panel {
   background: #fff;
   border: 1px solid #e0e0ea;
