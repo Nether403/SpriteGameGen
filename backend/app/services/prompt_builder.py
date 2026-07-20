@@ -87,6 +87,11 @@ def list_presets() -> list[dict]:
     return [dict(p) for p in PRESETS]
 
 
+def get_preset(action: str) -> dict:
+    """Return a copy of the preset for ``action``. Raises KeyError if unknown."""
+    return dict(_PRESETS_BY_ACTION[action])
+
+
 def frame_prompt(action: str, index: int, total: int) -> str:
     """Render the per-frame base-anchored prompt for ``action`` frame ``index``.
 
