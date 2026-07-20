@@ -1,0 +1,52 @@
+{
+  "frames": [
+    {
+      "filename": "frame_0.png",
+      "frame": {
+        "h": 8,
+        "w": 10,
+        "x": 0,
+        "y": 0
+      },
+      "index": 0
+    },
+    {
+      "filename": "frame_1.png",
+      "frame": {
+        "h": 8,
+        "w": 10,
+        "x": 10,
+        "y": 0
+      },
+      "index": 1
+    },
+    {
+      "filename": "frame_2.png",
+      "frame": {
+        "h": 8,
+        "w": 10,
+        "x": 0,
+        "y": 8
+      },
+      "index": 2
+    },
+    {
+      "filename": "frame_3.png",
+      "frame": {
+        "h": 8,
+        "w": 10,
+        "x": 10,
+        "y": 8
+      },
+      "index": 3
+    }
+  ],
+  "meta": {
+    "app": "sprite-game-asset-tool",
+    "format": "RGBA8888",
+    "size": {
+      "h": 16,
+      "w": 20
+    }
+  }
+}
