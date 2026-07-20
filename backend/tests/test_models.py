@@ -3,6 +3,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.models import (
+    AnimateRequest,
     ExportFormat,
     ExportOptions,
     Frame,
@@ -80,3 +81,42 @@ def test_export_options_rejects_bad_format():
 def test_export_options_rejects_zero_cols():
     with pytest.raises(ValidationError):
         ExportOptions(cols=0)
+
+
+def test_animate_request_defaults():
+    req = AnimateRequest(project_id="p1", action="walk")
+    assert req.frames is None  # route fills preset default
+    assert req.fps == 8
+
+
+def test_animate_request_explicit():
+    req = AnimateRequest(project_id="p1", action="run", frames=6, fps=12)
+    assert req.frames == 6
+    assert req.fps == 12
+
+
+def test_animate_request_rejects_empty_action():
+    with pytest.raises(ValidationError):
+        AnimateRequest(project_id="p1", action="")
+
+
+@pytest.mark.parametrize("frames", [1, 9])
+def test_animate_request_rejects_out_of_range_frames(frames):
+    with pytest.raises(ValidationError):
+        AnimateRequest(project_id="p1", action="walk", frames=frames)
+
+
+@pytest.mark.parametrize("fps", [0, 61])
+def test_animate_request_rejects_out_of_range_fps(fps):
+    with pytest.raises(ValidationError):
+        AnimateRequest(project_id="p1", action="walk", fps=fps)
+
+
+def test_project_animation_fields_optional():
+    project = Project(id="x", prompt="p", style=Style.PIXEL)
+    assert project.action is None
+    assert project.fps is None
+
+    animated = Project(id="x", prompt="p", style=Style.PIXEL, action="walk", fps=10)
+    assert animated.action == "walk"
+    assert animated.fps == 10

@@ -38,12 +38,18 @@ class Frame(BaseModel):
 
 
 class Project(BaseModel):
-    """Filesystem project manifest, persisted as ``project.json``."""
+    """Filesystem project manifest, persisted as ``project.json``.
+
+    ``action`` and ``fps`` are set once a project has been animated (Stage 2);
+    a freshly generated single-sprite project leaves them unset.
+    """
 
     id: str
     prompt: str
     style: Style
     frames: list[Frame] = Field(default_factory=list)
+    action: str | None = None
+    fps: int | None = Field(default=None, ge=1, le=60)
 
 
 class ExportOptions(BaseModel):
@@ -52,3 +58,18 @@ class ExportOptions(BaseModel):
     format: ExportFormat = ExportFormat.JSON
     padding: int = Field(default=0, ge=0)
     cols: int | None = Field(default=None, ge=1)  # None => auto near-square grid
+
+
+class AnimateRequest(BaseModel):
+    """Request to expand a project's base sprite into an animation (spec §3).
+
+    ``action`` is a preset name (walk/run/idle/…) validated against the preset
+    table at the route layer. ``frames`` is optional: when omitted the route
+    fills in the preset's default frame count. ``fps`` drives playback in the
+    preview and is stored on the manifest for export tooling.
+    """
+
+    project_id: str
+    action: str = Field(min_length=1)
+    frames: int | None = Field(default=None, ge=2, le=8)
+    fps: int = Field(default=8, ge=1, le=60)
