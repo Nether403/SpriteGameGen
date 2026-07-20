@@ -179,3 +179,19 @@ button:disabled {
   padding: 0.3rem 0.4rem;
   font-size: 0.75rem;
 }
+
+.animation-player h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+}
+
+.player-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.player-controls input[type="range"] {
+  flex: 1;
+}
