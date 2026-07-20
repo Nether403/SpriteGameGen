@@ -218,3 +218,77 @@ def regenerate_frame(
     project.frames[req.index] = frame
     store.write_manifest(req.project_id, project)
     return frame.model_dump()
+
+
+class DeleteFrameRequest(BaseModel):
+    """Delete a single frame and re-index the remainder (FrameStrip escape hatch).
+
+    Frames persist as ``frame_{index}.png`` and the export route assumes manifest
+    indices match those filenames, so deleting frame *i* renumbers every later
+    frame down by one on disk as well as in the manifest.
+    """
+
+    project_id: str
+    index: int = Field(ge=0)
+
+
+@router.delete("/animate/frame")
+def delete_frame(
+    req: DeleteFrameRequest,
+    store: ProjectStore = Depends(get_store),
+):
+    try:
+        project = store.read_manifest(req.project_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="project not found")
+
+    if project.action is None:
+        raise HTTPException(status_code=422, detail="project has not been animated")
+
+    total = len(project.frames)
+    if not (0 <= req.index < total):
+        raise HTTPException(
+            status_code=422, detail=f"frame index {req.index} out of range"
+        )
+
+    survivors = [f for f in project.frames if f.index != req.index]
+
+    # Load every surviving OK image into memory *before* touching disk, keyed by
+    # its new (post-delete) index, so re-numbering can't collide with a file that
+    # hasn't been moved yet (e.g. frame_2 -> frame_1 while frame_1 still exists).
+    loaded: dict[int, Image.Image] = {}
+    for new_index, frame in enumerate(survivors):
+        if frame.status is FrameStatus.OK:
+            loaded[new_index] = store.load_image(req.project_id, f"frame_{frame.index}")
+
+    # Clear all existing frame files, then rewrite the survivors at their new
+    # contiguous indices.
+    for frame in project.frames:
+        store.delete_image(req.project_id, f"frame_{frame.index}")
+
+    new_frames: list[Frame] = []
+    for new_index, frame in enumerate(survivors):
+        if new_index in loaded:
+            name = f"frame_{new_index}"
+            store.save_image(req.project_id, name, loaded[new_index])
+            new_frames.append(
+                Frame(
+                    index=new_index,
+                    url=f"/projects/{req.project_id}/{name}.png",
+                    status=FrameStatus.OK,
+                )
+            )
+        else:
+            new_frames.append(
+                Frame(index=new_index, url=None, status=FrameStatus.FAILED)
+            )
+
+    project.frames = new_frames
+    store.write_manifest(req.project_id, project)
+
+    return {
+        "project_id": req.project_id,
+        "action": project.action,
+        "fps": project.fps,
+        "frames": [f.model_dump() for f in new_frames],
+    }

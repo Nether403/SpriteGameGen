@@ -1,14 +1,15 @@
 // FrameStrip: thumbnails of the animation frames with a per-frame regenerate
 // escape hatch (spec §4). Failed frames render a placeholder + regenerate
 // button; the manual cleanup loop is the honest answer to imperfect frame
-// consistency. Delete removes a frame from the working set locally.
+// consistency. Delete removes the frame on the backend (re-indexing the rest)
+// so it stays gone after reload.
 import { useState } from "react";
 
-import { regenerateFrame } from "../api/client";
+import { deleteFrame, regenerateFrame } from "../api/client";
 import { useProjectStore } from "../state/project";
 
 export function FrameStrip() {
-  const { projectId, frames, setFrame, setAnimation, action, fps } = useProjectStore();
+  const { projectId, frames, setFrame, setAnimation, action } = useProjectStore();
   const [busyIndex, setBusyIndex] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -28,13 +29,18 @@ export function FrameStrip() {
     }
   }
 
-  function onDelete(index: number) {
-    if (action === null) return;
-    // Drop the frame and re-index the remainder so the strip stays contiguous.
-    const remaining = frames
-      .filter((f) => f.index !== index)
-      .map((f, i) => ({ ...f, index: i }));
-    setAnimation(action, fps, remaining);
+  async function onDelete(index: number) {
+    if (!projectId || action === null) return;
+    setBusyIndex(index);
+    setError(null);
+    try {
+      const result = await deleteFrame(projectId, index);
+      setAnimation(result.action, result.fps, result.frames);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Delete failed.");
+    } finally {
+      setBusyIndex(null);
+    }
   }
 
   return (

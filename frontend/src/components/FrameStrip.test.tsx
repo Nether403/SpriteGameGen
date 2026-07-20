@@ -9,8 +9,10 @@ import { useProjectStore } from "../state/project";
 import type { Frame } from "../api/client";
 
 const regenerateFrame = vi.fn();
+const deleteFrame = vi.fn();
 vi.mock("../api/client", () => ({
   regenerateFrame: (pid: string, index: number) => regenerateFrame(pid, index),
+  deleteFrame: (pid: string, index: number) => deleteFrame(pid, index),
 }));
 
 function seed(frames: Frame[]) {
@@ -34,6 +36,7 @@ const okFrames: Frame[] = [
 afterEach(() => {
   cleanup();
   regenerateFrame.mockReset();
+  deleteFrame.mockReset();
   useProjectStore.setState({ frames: [], action: null, projectId: null });
 });
 
@@ -62,18 +65,28 @@ describe("FrameStrip", () => {
     });
   });
 
-  it("deletes the clicked frame and re-indexes the remainder", () => {
+  it("deletes the clicked frame via the backend and stores the result", async () => {
     seed(okFrames);
+    // Backend returns the re-indexed survivors (the deleted frame is gone).
+    deleteFrame.mockResolvedValue({
+      project_id: "p1",
+      action: "walk",
+      fps: 8,
+      frames: [
+        { index: 0, url: "/projects/p1/frame_0.png", status: "ok" },
+        { index: 1, url: null, status: "failed" },
+      ],
+    });
     render(<FrameStrip />);
 
     fireEvent.click(screen.getByLabelText("Delete frame 1"));
+    expect(deleteFrame).toHaveBeenCalledWith("p1", 0);
 
-    const frames = useProjectStore.getState().frames;
-    expect(frames).toHaveLength(2);
-    // remaining frames re-indexed contiguously starting at 0
-    expect(frames.map((f) => f.index)).toEqual([0, 1]);
-    // the surviving urls are the ones that were not deleted
-    expect(frames[0].url).toBe("/projects/p1/frame_1.png");
+    await waitFor(() => {
+      const frames = useProjectStore.getState().frames;
+      expect(frames).toHaveLength(2);
+      expect(frames.map((f) => f.index)).toEqual([0, 1]);
+    });
   });
 
   it("renders nothing without a project or frames", () => {

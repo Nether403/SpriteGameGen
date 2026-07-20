@@ -221,6 +221,72 @@ async def test_regenerate_frame_unknown_project_404(client):
     assert resp.status_code == 404
 
 
+async def test_delete_frame_reindexes_and_persists(client, app_and_store):
+    _, store, _ = app_and_store
+    pid = await _generate(client)
+    await client.post("/animate", json={"project_id": pid, "action": "walk", "frames": 4})
+
+    resp = await client.request("DELETE", "/animate/frame", json={"project_id": pid, "index": 1})
+    assert resp.status_code == 200
+    body = resp.json()
+    # One fewer frame, indices contiguous from 0.
+    assert [f["index"] for f in body["frames"]] == [0, 1, 2]
+
+    proj = store.read_manifest(pid)
+    assert [f.index for f in proj.frames] == [0, 1, 2]
+    # The renumbered files exist on disk and the old top index is gone.
+    for i in range(3):
+        store.load_image(pid, f"frame_{i}")  # no FileNotFoundError
+    with pytest.raises(FileNotFoundError):
+        store.load_image(pid, "frame_3")
+
+
+async def test_delete_frame_survives_reload(client, app_and_store):
+    _, store, _ = app_and_store
+    pid = await _generate(client)
+    await client.post("/animate", json={"project_id": pid, "action": "walk", "frames": 4})
+    await client.request("DELETE", "/animate/frame", json={"project_id": pid, "index": 0})
+    # Manifest is the source of truth on reload — deletion is durable.
+    assert len(store.read_manifest(pid).frames) == 3
+
+
+async def test_delete_failed_frame_keeps_ok_frames_aligned(client, tmp_path):
+    # Frame 1 fails at animate time; deleting frame 0 must renumber the OK frames
+    # (2,3 -> 1,2) without trying to load the missing failed-frame file.
+    app, store, fake = _make(tmp_path, fail_on={1})
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        pid = await _generate(c)
+        await c.post("/animate", json={"project_id": pid, "action": "walk", "frames": 4})
+        resp = await c.request("DELETE", "/animate/frame", json={"project_id": pid, "index": 0})
+
+    assert resp.status_code == 200
+    frames = resp.json()["frames"]
+    assert [f["index"] for f in frames] == [0, 1, 2]
+    # Original failed frame (was index 1) is now index 0 and still failed.
+    assert frames[0]["status"] == "failed"
+    assert frames[0]["url"] is None
+    assert frames[1]["status"] == "ok"
+
+
+async def test_delete_frame_out_of_range_422(client):
+    pid = await _generate(client)
+    await client.post("/animate", json={"project_id": pid, "action": "walk", "frames": 4})
+    resp = await client.request("DELETE", "/animate/frame", json={"project_id": pid, "index": 99})
+    assert resp.status_code == 422
+
+
+async def test_delete_frame_unanimated_project_422(client):
+    pid = await _generate(client)
+    resp = await client.request("DELETE", "/animate/frame", json={"project_id": pid, "index": 0})
+    assert resp.status_code == 422
+
+
+async def test_delete_frame_unknown_project_404(client):
+    resp = await client.request("DELETE", "/animate/frame", json={"project_id": "nope", "index": 0})
+    assert resp.status_code == 404
+
+
 async def test_animate_edit_prompts_are_base_anchored(client, app_and_store):
     _, _, fake = app_and_store
     pid = await _generate(client)

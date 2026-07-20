@@ -72,6 +72,11 @@ class ProjectStore:
         with Image.open(path) as im:
             return im.convert("RGBA")
 
+    def delete_image(self, pid: str, name: str) -> None:
+        """Remove a PNG asset if present; a missing file is not an error."""
+        _check_name(name, "image name")
+        (self._project_dir(pid) / f"{name}.png").unlink(missing_ok=True)
+
     # --- text assets (atlas files) ---
     def write_text(self, pid: str, filename: str, content: str) -> Path:
         stem, _, ext = filename.rpartition(".")

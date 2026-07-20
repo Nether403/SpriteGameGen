@@ -124,6 +124,20 @@ export async function regenerateFrame(
   return unwrap<Frame>(res);
 }
 
+// DELETE /animate/frame — remove a frame and re-index the rest (FrameStrip
+// hatch). Returns the updated animation like /animate does.
+export async function deleteFrame(
+  projectId: string,
+  index: number,
+): Promise<AnimateResult> {
+  const res = await fetch("/animate/frame", {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ project_id: projectId, index }),
+  });
+  return unwrap<AnimateResult>(res);
+}
+
 export interface Preset {
   action: string;
   min_frames: number;
