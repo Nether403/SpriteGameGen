@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(./.venv/Scripts/python.exe -m pytest tests/test_prompt_builder.py -q)"
+      "Bash(./.venv/Scripts/python.exe -m pytest tests/test_prompt_builder.py -q)",
+      "Bash(./.venv/Scripts/python.exe -c ' *)"
     ]
   }
 }
