@@ -100,3 +100,33 @@ Then work through the three steps:
    Side-scrollers allow left/right; top-down/2.5D projects allow all eight directions.
 3. **Export** — pick JSON/XML atlas format, grid columns, and padding, then download the
    packed sheet + atlas.
+
+## Local MCP server
+
+The backend also installs `sprite-mcp`, a local stdio MCP server backed by the same
+`SpriteService` as FastAPI. It exposes structured tools for `list_projects`,
+`get_project`, `enhance_prompt`, `generate_sprite`, `animate`, `regenerate_frame`, and
+`export_sheet`.
+
+After installing the backend, register it in an MCP client using the console script:
+
+```json
+{
+  "mcpServers": {
+    "sprite-game": {
+      "command": "D:\\SpriteGameGen\\backend\\.venv\\Scripts\\sprite-mcp.exe"
+    }
+  }
+}
+```
+
+The server uses stdio and returns absolute local asset paths. It has no delete tool,
+does not accept arbitrary/reference-image paths, and operates only on `PROJECTS_DIR`.
+Generation tools require the same Vertex credentials and model settings as the web
+app; project listing and the smoke test do not call Gemini.
+
+Run the credential-free protocol smoke test from the repository root:
+
+```powershell
+backend\.venv\Scripts\python.exe scripts\smoke_mcp.py
+```

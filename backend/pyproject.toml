@@ -14,7 +14,11 @@ dependencies = [
     "onnxruntime>=1.17",  # rembg inference backend (not pulled in by default)
     "google-genai>=0.3",
     "python-multipart>=0.0.9",
+    "mcp>=1.12,<2",
 ]
+
+[project.scripts]
+sprite-mcp = "app.mcp_server:main"
 
 [project.optional-dependencies]
 dev = [

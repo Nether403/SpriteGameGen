@@ -231,7 +231,7 @@ async def test_animate_pixelate_failure_isolated_to_one_frame(tmp_path, monkeypa
                 raise PixelateError("simulated quantize failure")
             return img
 
-        monkeypatch.setattr("app.routes.animate.pixelate.quantize", flaky_quantize)
+        monkeypatch.setattr("app.services.sprite_service.pixelate.quantize", flaky_quantize)
         resp = await c.post("/animate", json={"project_id": pid, "action": "walk", "frames": 4})
 
     assert resp.status_code == 200

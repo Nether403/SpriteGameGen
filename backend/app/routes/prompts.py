@@ -1,9 +1,15 @@
 """Explicit prompt-enhancement preview endpoint."""
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.deps import get_gemini_client
+from app.deps import get_gemini_client, get_store
 from app.models import EnhancePromptRequest, EnhancePromptResult
-from app.services.gemini_client import GeminiClient, GeminiError, SafetyBlockedError
+from app.services.gemini_client import GeminiClient
+from app.services.sprite_service import (
+    SafetyServiceError,
+    SpriteService,
+    UpstreamServiceError,
+)
+from app.storage.project_store import ProjectStore
 
 router = APIRouter(prefix="/prompts")
 
@@ -12,20 +18,11 @@ router = APIRouter(prefix="/prompts")
 def enhance_prompt(
     request: EnhancePromptRequest,
     gemini: GeminiClient = Depends(get_gemini_client),
+    store: ProjectStore = Depends(get_store),
 ):
     try:
-        enhanced = gemini.enhance_prompt(
-            request.prompt,
-            request.style,
-            request.view_mode,
-            request.direction,
-        )
-    except SafetyBlockedError as exc:
+        return SpriteService(store=store, gemini=gemini).enhance_prompt(request)
+    except SafetyServiceError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
-    except GeminiError as exc:
+    except UpstreamServiceError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
-
-    return EnhancePromptResult(
-        original_prompt=request.prompt,
-        enhanced_prompt=enhanced,
-    )

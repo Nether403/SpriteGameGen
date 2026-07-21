@@ -12,21 +12,15 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Uplo
 from PIL import Image, UnidentifiedImageError
 
 from app.deps import get_gemini_client, get_store
-from app.models import (
-    Direction,
-    Frame,
-    PromptSource,
-    Project,
-    Style,
-    ViewMode,
-    validate_direction,
-)
-from app.pipeline import background, pixelate, trim
-from app.pipeline.background import BackgroundRemovalError
-from app.pipeline.pixelate import PixelateError
-from app.pipeline.trim import EmptyImageError
-from app.services.gemini_client import GeminiClient, GeminiError, SafetyBlockedError
+from app.models import Direction, Style, ViewMode, validate_direction
+from app.services.gemini_client import GeminiClient
 from app.services.asset_urls import asset_url
+from app.services.sprite_service import (
+    GenerateSpriteInput,
+    SafetyServiceError,
+    SpriteService,
+    UpstreamServiceError,
+)
 from app.storage.project_store import ProjectStore
 
 router = APIRouter()
@@ -80,7 +74,6 @@ async def generate(
         raise HTTPException(
             status_code=422, detail="enhanced prompt must be at most 2000 characters"
         )
-    effective_prompt = accepted_prompt or prompt.strip()
 
     ref_img: Image.Image | None = None
     if reference is not None:
@@ -96,59 +89,28 @@ async def generate(
         except UnidentifiedImageError:
             raise HTTPException(status_code=422, detail="reference is not a valid image")
 
-    # --- generation ---
     try:
-        raw_img = gemini.generate(
-            effective_prompt,
-            style_enum,
-            reference=ref_img,
-            view_mode=mode_enum,
-            direction=direction_enum,
+        result = SpriteService(
+            store=store,
+            gemini=gemini,
+            remover=getattr(request.app.state, "remover", None),
+        ).generate_sprite(
+            GenerateSpriteInput(
+                prompt=prompt,
+                enhanced_prompt=accepted_prompt,
+                style=style_enum,
+                view_mode=mode_enum,
+                direction=direction_enum,
+                reference=ref_img,
+            )
         )
-    except SafetyBlockedError as exc:
+    except SafetyServiceError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
-    except GeminiError as exc:
+    except UpstreamServiceError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
 
-    # --- deterministic post-processing ---
-    remover = getattr(request.app.state, "remover", None)
-    try:
-        cut = background.remove(raw_img, remover=remover)
-    except BackgroundRemovalError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
-    try:
-        sprite = trim.autocrop(cut, padding=0)
-    except EmptyImageError:
-        raise HTTPException(
-            status_code=502,
-            detail="generated image was empty after background removal",
-        )
-    if style_enum is Style.PIXEL:
-        try:
-            sprite = pixelate.quantize(sprite)
-        except PixelateError as exc:
-            raise HTTPException(status_code=502, detail=str(exc)) from exc
-
-    # --- persist ---
-    pid = store.create()
-    store.save_image(pid, "sprite", sprite)
-    sprite_url = asset_url(pid, "sprite.png")
-    project = Project(
-        id=pid,
-        prompt=prompt.strip(),
-        enhanced_prompt=accepted_prompt,
-        prompt_source=(
-            PromptSource.ENHANCED if accepted_prompt else PromptSource.RAW
-        ),
-        style=style_enum,
-        view_mode=mode_enum,
-        direction=direction_enum,
-        frames=[Frame(index=0, url=sprite_url)],
-    )
-    store.write_manifest(pid, project)
-
     return {
-        "project_id": pid,
-        "sprite_url": sprite_url,
-        "prompt_source": project.prompt_source,
+        "project_id": result.project_id,
+        "sprite_url": asset_url(result.project_id, result.sprite_filename),
+        "prompt_source": result.project.prompt_source,
     }

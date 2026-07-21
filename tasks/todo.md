@@ -43,21 +43,22 @@
 
 ## Phase 3: Shared services and MCP
 
-- [ ] Task 12 — Define application result and error contracts
-- [ ] Task 13 — Extract enhance and generate workflows
-- [ ] Task 14 — Extract animation and frame-repair workflows
-- [ ] Task 15 — Extract export workflow
-- [ ] Task 16 — Add FastMCP server foundation and read tools
-- [ ] Task 17 — Add creative and export MCP tools
-- [ ] Task 18 — Document and smoke-test MCP installation
+- [ ] Follow-up — Add a disposable live-model validation matrix for configured Gemini model availability, latency, safety behavior, and sprite/output quality; document supported model/region combinations and a manual acceptance rubric
+- [x] Task 12 — Define application result and error contracts
+- [x] Task 13 — Extract enhance and generate workflows
+- [x] Task 14 — Extract animation and frame-repair workflows
+- [x] Task 15 — Extract export workflow
+- [x] Task 16 — Add FastMCP server foundation and read tools
+- [x] Task 17 — Add creative and export MCP tools
+- [x] Task 18 — Document and smoke-test MCP installation
 
 ### Checkpoint 3
 
-- [ ] HTTP and MCP both call `SpriteService`
-- [ ] MCP performs no HTTP calls and imports no route modules
-- [ ] In-process MCP tool scenario passes
-- [ ] Stdio initialization and tool discovery pass
-- [ ] Full backend/frontend/dependency validation passes
+- [x] HTTP and MCP both call `SpriteService`
+- [x] MCP performs no HTTP calls and imports no route modules
+- [x] In-process MCP tool scenario passes
+- [x] Stdio initialization and tool discovery pass
+- [x] Full backend/frontend/dependency validation passes
 
 ## Final validation
 
@@ -65,6 +66,6 @@
 - [x] `backend`: `pip check`
 - [x] `frontend`: full Vitest suite
 - [x] `frontend`: production build
-- [ ] `frontend`: production dependency audit
-- [ ] Repository: `git diff --check`
+- [x] `frontend`: production dependency audit
+- [x] Repository: `git diff --check`
 - [ ] Manual smoke: browse/resume, direction, enhancer fallback, MCP export
