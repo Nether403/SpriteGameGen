@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     # --- Vertex AI auth ---
     google_application_credentials: str = Field(default="")
     google_cloud_project: str = Field(default="")
-    google_cloud_region: str = Field(default="us-central1")
+    google_cloud_region: str = Field(default="global")
 
     # --- Model IDs (config-only; read only by gemini_client) ---
     gemini_model_generate: str = Field(default="gemini-3.1-flash-image")

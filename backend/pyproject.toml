@@ -11,6 +11,7 @@ dependencies = [
     "pillow>=10.3",
     "numpy>=1.26",
     "rembg>=2.0.56",
+    "onnxruntime>=1.17",  # rembg inference backend (not pulled in by default)
     "google-genai>=0.3",
     "python-multipart>=0.0.9",
 ]

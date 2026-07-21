@@ -46,7 +46,7 @@ def test_reads_env_and_defaults(monkeypatch, tmp_path):
     assert settings.google_application_credentials == str(key_file)
     assert settings.google_cloud_project == "my-project"
     # Region and model IDs have sane defaults.
-    assert settings.google_cloud_region == "us-central1"
+    assert settings.google_cloud_region == "global"
     assert settings.gemini_model_generate == "gemini-3.1-flash-image"
     assert settings.gemini_model_edit == "gemini-3.1-flash-image"
 
