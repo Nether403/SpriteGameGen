@@ -14,6 +14,8 @@ backend/projects/
 projects/
 # Manual smoke-test outputs
 scripts/smoke_out/
+# Disposable live model validation matrices and review artifacts
+scripts/live_validation_out/
 
 # --- Python ---
 __pycache__/

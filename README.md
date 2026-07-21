@@ -85,6 +85,18 @@ npm run build
   writes the results to `scripts/smoke_out/` (git-ignored) for inspection. Use this to
   confirm the live model IDs and SDK signatures still match after any dependency bump.
 
+- **Live model validation matrix**: probes the configured prompt, generation, and edit
+  models by region; records availability, latency, optional safety-block behavior, and
+  raw/processed artifacts for a scored manual quality review. It is billable, opt-in,
+  outside CI, and writes to a disposable git-ignored directory. See
+  [`docs/live-model-validation.md`](docs/live-model-validation.md) for the supported
+  model/region table and acceptance rubric.
+
+  ```powershell
+  cd backend
+  .venv\Scripts\python.exe ..\scripts\validate_live_models.py --repeats 3 --include-block-probe
+  ```
+
 ## Using the app
 
 With both the backend (`uvicorn`) and frontend (`npm run dev`) running, open

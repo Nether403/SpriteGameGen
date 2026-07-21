@@ -43,7 +43,7 @@
 
 ## Phase 3: Shared services and MCP
 
-- [ ] Follow-up — Add a disposable live-model validation matrix for configured Gemini model availability, latency, safety behavior, and sprite/output quality; document supported model/region combinations and a manual acceptance rubric
+- [x] Follow-up — Add a disposable live-model validation matrix for configured Gemini model availability, latency, safety behavior, and sprite/output quality; document supported model/region combinations and a manual acceptance rubric
 - [x] Task 12 — Define application result and error contracts
 - [x] Task 13 — Extract enhance and generate workflows
 - [x] Task 14 — Extract animation and frame-repair workflows
@@ -59,6 +59,13 @@
 - [x] In-process MCP tool scenario passes
 - [x] Stdio initialization and tool discovery pass
 - [x] Full backend/frontend/dependency validation passes
+
+### Live validation findings (2026-07-21)
+
+- [ ] Investigate `429 RESOURCE_EXHAUSTED` on the second sequential `gemini-3.1-flash-image` call; confirm project quota/capacity and whether production backoff is sufficient
+- [ ] Fix `gemini-3.5-flash` prompt-enhancer truncation (likely output/thinking budget interaction), then add a live acceptance sample that preserves the full subject
+- [ ] Improve or deterministically normalize left/right directional adherence; the accepted-quality gate now treats wrong facing direction as critical
+- [ ] Re-run `validate_live_models.py --repeats 3 --include-block-probe` after the above fixes and require automated plus manual PASS
 
 ## Final validation
 
