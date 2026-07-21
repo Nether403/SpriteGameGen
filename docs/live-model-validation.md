@@ -143,3 +143,33 @@ A case passes with a mean score of at least **1.5** and no critical criterion sc
 Finalize exits `0` for pass, `1` for pending/fail, and `2` for an invalid review file.
 Keep a run only when it is useful as release evidence; otherwise delete its timestamped
 directory.
+
+## Azure GPT Image 2 acceptance snapshot
+
+Azure uses the same manual rubric above, with identity and pose supplied as two ordered
+`image[]` multipart inputs. The adapter targets `/openai/v1/images/edits?api-version=preview`,
+uses high input fidelity, and treats content filtering as non-retryable. Frame requests
+are bounded to three concurrent edits; deterministic background removal, alignment, and
+quantization remain serial.
+
+The local **2026-07-21** acceptance against deployment `gpt-image-2-2` in East US 2
+observed:
+
+| Probe | Result | Wall time |
+|---|---:|---:|
+| Base generation | 1/1 available | 15.89 s |
+| Identity + pose multi-reference edit | 1/1 available | 17.26 s |
+| Eight-frame walk through `SpriteService` | 8/8 first-attempt successes | 63.51 s |
+| Corrected no-guide-line regeneration | 1/1 available | 18.78 s |
+
+The eight-frame output had clear alternating contact, compression, passing, and lift
+poses while retaining the robot identity and palette. The first run also exposed a
+visible floor-line artifact copied from the pose guide. The guide line was removed and
+the prompt now requires an invisible baseline; the one-frame live regression was clean.
+These observations are a small manual sample, not an availability or latency SLA.
+
+Hyperagent is intentionally not listed as supported. Its authenticated MCP exports
+agent/thread orchestration but no direct image tool, and no saved image-enabled agent
+was returned by `list_agents`. Its in-product Images capability is therefore
+agent-mediated and remains experimental until a dedicated sprite agent, authentication
+path, returned artifact contract, latency, and cost are validated end to end.

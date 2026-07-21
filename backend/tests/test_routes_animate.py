@@ -4,7 +4,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from PIL import Image
 
-from app.deps import get_gemini_client, get_store
+from app.deps import get_azure_image_provider, get_gemini_client, get_store
 from app.main import create_app
 from app.models import Direction, Style, ViewMode
 from app.pipeline.pixelate import PixelateError
@@ -104,6 +104,22 @@ async def test_animation_options_are_camera_aware(client):
     options = {item["view_mode"]: item["directions"] for item in response.json()}
     assert options["side_scroller"] == ["left", "right"]
     assert set(options["top_down_2_5d"]) == {item.value for item in Direction}
+
+
+async def test_image_provider_options_report_experimental_state(
+    client, app_and_store
+):
+    app, _, _ = app_and_store
+    app.dependency_overrides[get_azure_image_provider] = lambda: None
+
+    response = await client.get("/image-providers")
+
+    assert response.status_code == 200
+    options = {item["id"]: item for item in response.json()}
+    assert options["auto"]["available"] is True
+    assert options["azure"]["available"] is False
+    assert options["hyperagent"]["experimental"] is True
+    assert options["hyperagent"]["available"] is False
 
 
 async def test_animate_persists_direction_and_uses_camera_prompt(client, app_and_store):

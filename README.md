@@ -1,8 +1,8 @@
 # AI Sprite & Game Asset Tool
 
 A locally-run web app that turns a text prompt (and optional reference image) into a
-clean, engine-ready animated sprite sheet. Gemini (via Vertex AI / Google Agent
-Platform) does the generative work; a deterministic Python pipeline handles background
+clean, engine-ready animated sprite sheet. Azure GPT Image or Gemini (via Vertex AI /
+Google Agent Platform) does the generative work; a deterministic Python pipeline handles background
 removal, pixel-art quantization, sprite-sheet packing, and atlas metadata.
 Side-scroller walks also provide Gemini with deterministic eight-phase pose guides,
 so frames change limb geometry instead of merely restyling the same stance.
@@ -47,6 +47,13 @@ a service-account JSON key — not a `GEMINI_API_KEY`. Set in `.env`:
 | `GEMINI_MAX_RETRIES` | Maximum attempts for retryable Gemini failures (default `5`) |
 | `GEMINI_BACKOFF_SECONDS` | Initial retry delay for non-quota failures; subsequent delays double (default `1`) |
 | `GEMINI_QUOTA_BACKOFF_SECONDS` | Minimum delay after `429 RESOURCE_EXHAUSTED` before an automatic retry (default `15`) |
+| `AZURE_OPENAI_ENDPOINT` | Optional Azure OpenAI resource or `/openai/v1` endpoint |
+| `AZURE_OPENAI_API_KEY` | Azure API key; local secret, never commit it |
+| `AZURE_OPENAI_DEPLOYMENT` | Azure deployment name, for example `gpt-image-2-2` |
+| `AZURE_IMAGE_QUALITY` | `low`, `medium`, `high`, or `auto` (default `low`) |
+| `AZURE_IMAGE_TIMEOUT_SECONDS` | Per-attempt Azure request timeout (default `180`) |
+| `AZURE_IMAGE_MAX_RETRIES` | Maximum Azure attempts for retryable failures (default `2`) |
+| `AZURE_IMAGE_MAX_CONCURRENCY` | Maximum concurrent Azure frame edits (default `3`) |
 | `PROJECTS_DIR` | Output dir (default `./projects`) |
 
 > The service-account key must stay local — it is git-ignored (`project-*.json`) and
@@ -111,7 +118,9 @@ Then work through the three steps:
 
 1. **Generate** — describe the sprite, pick pixel/hi-res and a game camera, then choose
    an allowed direction. Prompt enhancement is optional: request a visible preview,
-   edit it, and explicitly accept it before generation. You can also attach a reference.
+   edit it, and explicitly accept it before generation. Choose Auto, Azure, or Gemini;
+   Auto prefers Azure when configured. Hyperagent is shown as Experimental but remains
+   disabled until its agent-mediated image path is validated. You can also attach a reference.
 2. **Animate** — choose an action preset, direction, and frame count, generate the cycle,
    preview the loop, and regenerate or delete any frames that came out inconsistent.
    Side-scrollers allow left/right; top-down/2.5D projects allow all eight directions.
