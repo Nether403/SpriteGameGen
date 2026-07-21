@@ -14,6 +14,7 @@ describe("development API proxy", () => {
       "/prompts": "http://localhost:8000",
       "/animate": "http://localhost:8000",
       "/animation-options": "http://localhost:8000",
+      "/image-providers": "http://localhost:8000",
       "/presets": "http://localhost:8000",
       "/export": "http://localhost:8000",
       "/projects": "http://localhost:8000",
