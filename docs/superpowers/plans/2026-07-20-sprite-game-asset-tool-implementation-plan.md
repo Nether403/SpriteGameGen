@@ -235,7 +235,7 @@
 
 ## Risks / watch-items
 
-1. **Model IDs may differ at runtime.** `gemini-3.1-flash-image` is per the spec; if the live API rejects it, change only `config.py`. Smoke test surfaces this immediately.
-2. **rembg model download** is heavy on first run — keep it out of unit tests (injected fake) and note the first-call latency in README.
+1. **Model IDs may differ at runtime.** ✅ RESOLVED (2026-07-21 live smoke test): `gemini-3.1-flash-image` is valid but **404s at `us-central1`** — Gemini 3.x image models serve from the **`global`** endpoint. Default region is now `global` in `config.py` and `.env(.example)`. Change region/model only in config if it drifts again.
+2. **rembg model download** is heavy on first run — keep it out of unit tests (injected fake) and note the first-call latency in README. ✅ Also required declaring **`onnxruntime`** (rembg's inference backend, not pulled in automatically) — now in `pyproject.toml`, else bg removal raises "No onnxruntime backend found".
 3. **Gemini frame consistency is imperfect** — the regenerate-per-frame hatch (Task 17) is the honest mitigation, per spec §4.
 4. **Service-account key in repo** — safe as long as the repo is never pushed; `.gitignore` covers `project-*.json` so an accidental push won't include it (Task 1).

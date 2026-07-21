@@ -35,15 +35,23 @@ a service-account JSON key — not a `GEMINI_API_KEY`. Set in `.env`:
 
 | Var | Meaning |
 |---|---|
-| `GOOGLE_APPLICATION_CREDENTIALS` | Path to the service-account JSON key file |
+| `GOOGLE_APPLICATION_CREDENTIALS` | Path to the service-account JSON key file (loaded explicitly; if unset, falls back to `gcloud` ADC) |
 | `GOOGLE_CLOUD_PROJECT` | GCP project ID |
-| `GOOGLE_CLOUD_REGION` | Vertex region (default `us-central1`) |
+| `GOOGLE_CLOUD_REGION` | Vertex region (default `global`) |
 | `GEMINI_MODEL_GENERATE` | Stage 1 model (default `gemini-3.1-flash-image`) |
 | `GEMINI_MODEL_EDIT` | Stage 2 model (default `gemini-3.1-flash-image`) |
 | `PROJECTS_DIR` | Output dir (default `./projects`) |
 
 > The service-account key must stay local — it is git-ignored (`project-*.json`) and
 > must never be pushed.
+
+> **Region note:** Gemini 3.x image models (`gemini-3.1-flash-image`, `gemini-3-pro-image`)
+> are served from the **`global`** endpoint, not a regional one like `us-central1` — a
+> regional endpoint returns a 404 "model not found in region".
+
+> **First run:** `rembg` downloads its ~170 MB background-removal model on first use, so
+> the first generate/animate call is slow. The `onnxruntime` inference backend is a
+> declared dependency (installed via `pip install -e ".[dev]"`).
 
 ## Frontend setup
 
