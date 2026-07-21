@@ -9,6 +9,7 @@ import {
   deleteProject,
   exportProject,
   generate,
+  getProject,
   listPresets,
   listProjects,
   regenerateFrame,
@@ -183,6 +184,18 @@ describe("projects", () => {
     const fetchMock = mockFetch({ ok: true, json: async () => [] });
     await listProjects();
     expect(fetchMock.mock.calls[0][0]).toBe("/projects");
+  });
+
+  it("loads project detail via GET /projects/:id", async () => {
+    const fetchMock = mockFetch({
+      ok: true,
+      json: async () => ({ id: "p1", prompt: "a knight", frames: [] }),
+    });
+
+    const project = await getProject("p1");
+
+    expect(project.id).toBe("p1");
+    expect(fetchMock.mock.calls[0][0]).toBe("/projects/p1");
   });
 
   it("deletes via DELETE /projects/:id", async () => {

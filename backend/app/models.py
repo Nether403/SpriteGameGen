@@ -5,6 +5,7 @@ Kept intentionally small; Stage 2 extends ``Frame`` and adds ``AnimateRequest``.
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from enum import Enum
 
 from pydantic import BaseModel, Field
@@ -22,6 +23,12 @@ class FrameStatus(str, Enum):
 
     OK = "ok"
     FAILED = "failed"
+
+
+class ProjectHealth(str, Enum):
+    READY = "ready"
+    INCOMPLETE = "incomplete"
+    CORRUPT = "corrupt"
 
 
 class ExportFormat(str, Enum):
@@ -47,9 +54,38 @@ class Project(BaseModel):
     id: str
     prompt: str
     style: Style
+    schema_version: int = Field(default=1, ge=1)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     frames: list[Frame] = Field(default_factory=list)
     action: str | None = None
     fps: int | None = Field(default=None, ge=1, le=60)
+
+
+class ProjectSummary(BaseModel):
+    """Compact catalog entry used by the project browser."""
+
+    id: str
+    prompt_preview: str | None = None
+    style: Style | None = None
+    thumbnail_url: str | None = None
+    action: str | None = None
+    fps: int | None = None
+    frame_count: int = 0
+    ok_count: int = 0
+    failed_count: int = 0
+    created_at: datetime
+    updated_at: datetime
+    health: ProjectHealth
+    resume_available: bool = False
+
+
+class ProjectDetail(Project):
+    """Full project state with browser metadata and fresh asset URLs."""
+
+    sprite_url: str | None = None
+    health: ProjectHealth = ProjectHealth.READY
+    resume_available: bool = True
 
 
 class ExportOptions(BaseModel):

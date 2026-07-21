@@ -209,6 +209,7 @@ All stable workflows
 - `frontend/src/api/client.test.ts`
 - `frontend/src/state/project.ts`
 - `frontend/src/state/project.test.ts`
+- `frontend/src/components/GeneratePanel.tsx`
 
 **Estimated scope:** Medium
 

@@ -1,4 +1,6 @@
 """Filesystem project store: dirs, image round-trip, manifest, list/delete."""
+import json
+from datetime import datetime, timezone
 import pytest
 from PIL import Image
 
@@ -54,6 +56,44 @@ def test_manifest_roundtrip(store):
     assert read == project
     assert read.style is Style.PIXEL
     assert read.frames[0].index == 0
+
+
+def test_read_manifest_backfills_old_metadata_without_rewriting(store, tmp_path):
+    pid = store.create()
+    manifest_path = tmp_path / pid / "project.json"
+    manifest_path.write_text(
+        json.dumps({"id": pid, "prompt": "old sprite", "style": "pixel"}),
+        encoding="utf-8",
+    )
+    before = manifest_path.read_bytes()
+
+    first = store.read_manifest(pid)
+    second = store.read_manifest(pid)
+
+    assert first.schema_version == 1
+    assert first.created_at.tzinfo == timezone.utc
+    assert first.updated_at.tzinfo == timezone.utc
+    assert first.created_at == second.created_at
+    assert first.updated_at == second.updated_at
+    assert manifest_path.read_bytes() == before
+
+
+def test_write_manifest_preserves_creation_and_advances_update(store):
+    pid = store.create()
+    created = datetime(2020, 1, 1, tzinfo=timezone.utc)
+    project = Project(
+        id=pid,
+        prompt="p",
+        style=Style.PIXEL,
+        created_at=created,
+        updated_at=created,
+    )
+
+    store.write_manifest(pid, project)
+
+    read = store.read_manifest(pid)
+    assert read.created_at == created
+    assert read.updated_at > created
 
 
 def test_list_projects(store):

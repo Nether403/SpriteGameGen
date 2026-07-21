@@ -2,17 +2,17 @@
 
 ## Phase 1: Project browser and resume
 
-- [ ] Task 1 — Add backward-compatible manifest metadata
-- [ ] Task 2 — Build resilient project summary and detail APIs
-- [ ] Task 3 — Add frontend project hydration
-- [ ] Task 4 — Add the project browser UI
+- [x] Task 1 — Add backward-compatible manifest metadata
+- [x] Task 2 — Build resilient project summary and detail APIs
+- [x] Task 3 — Add frontend project hydration
+- [x] Task 4 — Add the project browser UI
 
 ### Checkpoint 1
 
-- [ ] Backend suite passes
-- [ ] Frontend suite and production build pass
-- [ ] Old manifest opens successfully
-- [ ] Generate -> reload -> resume -> animate/export works
+- [x] Backend suite passes
+- [x] Frontend suite and production build pass
+- [x] Old manifest opens successfully
+- [x] Generate -> reload -> resume -> animate/export works
 
 ## Phase 2A: Directional controls
 

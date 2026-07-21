@@ -68,8 +68,9 @@ npm run build
 - **Pipeline** (`backend/tests/`): pure unit tests against committed fixtures — fast,
   free, deterministic.
 - **Gemini client**: tested against a mocked SDK; no real API calls in CI.
-- **Frontend** (`frontend/`): `npm test` — Vitest covers API request shaping, the
-  `FrameStrip` regenerate/delete actions, and the `AnimationPlayer` loop timing math.
+- **Frontend** (`frontend/`): `npm test` — Vitest covers API request shaping, project
+  browser resume/delete behavior, Zustand hydration, `FrameStrip` regenerate/delete
+  actions, and the `AnimationPlayer` loop timing math.
 - **Live smoke test**: makes real Gemini calls, **manual only** (kept out of `pytest`).
   Run it from the backend venv after configuring `.env`:
 
@@ -86,7 +87,9 @@ npm run build
 ## Using the app
 
 With both the backend (`uvicorn`) and frontend (`npm run dev`) running, open
-http://localhost:5173 and work through the three steps:
+http://localhost:5173. The saved-project browser loads local projects first; open a
+healthy project to restore its prompt, sprite, animation frames, and export workflow.
+Then work through the three steps:
 
 1. **Generate** — describe the sprite, pick pixel/hi-res, optionally attach a reference.
 2. **Animate** — choose an action preset and frame count, generate the cycle, preview the

@@ -2,6 +2,7 @@
 import { AnimatePanel } from "./components/AnimatePanel";
 import { ExportPanel } from "./components/ExportPanel";
 import { GeneratePanel } from "./components/GeneratePanel";
+import { ProjectBrowser } from "./components/ProjectBrowser";
 
 export default function App() {
   return (
@@ -10,6 +11,7 @@ export default function App() {
         <h1>AI Sprite &amp; Game Asset Tool</h1>
         <p>Describe a sprite, animate it, get a clean engine-ready sheet.</p>
       </header>
+      <ProjectBrowser />
       <div className="steps">
         <GeneratePanel />
         <AnimatePanel />

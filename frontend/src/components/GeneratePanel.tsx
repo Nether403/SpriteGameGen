@@ -5,8 +5,7 @@ import { generate, type Style } from "../api/client";
 import { useProjectStore } from "../state/project";
 
 export function GeneratePanel() {
-  const { style, setStyle, setGenerated, spriteUrl } = useProjectStore();
-  const [prompt, setPrompt] = useState("");
+  const { prompt, style, setPrompt, setStyle, setGenerated, spriteUrl } = useProjectStore();
   const [reference, setReference] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -20,7 +19,7 @@ export function GeneratePanel() {
     setError(null);
     try {
       const result = await generate(prompt, style, reference);
-      setGenerated(result.project_id, result.sprite_url);
+      setGenerated(result.project_id, result.sprite_url, prompt.trim());
     } catch (e) {
       setError(e instanceof Error ? e.message : "Generation failed.");
     } finally {

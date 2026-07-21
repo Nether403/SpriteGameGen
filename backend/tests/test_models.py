@@ -1,4 +1,5 @@
 """Domain model validation."""
+from datetime import datetime, timezone
 import pytest
 from pydantic import ValidationError
 
@@ -52,6 +53,15 @@ def test_project_construction():
     assert len(project.frames) == 1
     # frames default to empty list
     assert Project(id="x", prompt="p", style=Style.HIRES).frames == []
+
+
+def test_project_metadata_defaults_are_utc_and_versioned():
+    project = Project(id="x", prompt="p", style=Style.PIXEL)
+
+    assert project.schema_version == 1
+    assert project.created_at.tzinfo == timezone.utc
+    assert project.updated_at.tzinfo == timezone.utc
+    assert isinstance(project.created_at, datetime)
 
 
 def test_export_options_defaults():

@@ -6,17 +6,31 @@ prevent path traversal outside the project root.
 """
 from __future__ import annotations
 
+import json
 import re
 import shutil
 import uuid
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 
 from PIL import Image
 
-from app.models import Project
+from app.models import Project, ProjectHealth, FrameStatus
 
 _SAFE_NAME = re.compile(r"^[A-Za-z0-9_-]+$")
 MANIFEST_NAME = "project.json"
+
+
+@dataclass(frozen=True)
+class ProjectRecord:
+    """Catalog scan result, including projects that cannot currently resume."""
+
+    id: str
+    project: Project | None
+    health: ProjectHealth
+    updated_at: datetime
+    has_sprite: bool
 
 
 def _check_name(value: str, kind: str) -> str:
@@ -92,6 +106,8 @@ class ProjectStore:
     def write_manifest(self, pid: str, project: Project) -> Path:
         path = self._project_dir(pid) / MANIFEST_NAME
         path.parent.mkdir(parents=True, exist_ok=True)
+        project.schema_version = max(1, project.schema_version)
+        project.updated_at = datetime.now(timezone.utc)
         path.write_text(project.model_dump_json(indent=2), encoding="utf-8")
         return path
 
@@ -99,16 +115,47 @@ class ProjectStore:
         path = self._project_dir(pid) / MANIFEST_NAME
         if not path.is_file():
             raise FileNotFoundError(path)
-        return Project.model_validate_json(path.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8"))
+        manifest_time = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+        data.setdefault("schema_version", 1)
+        data.setdefault("created_at", manifest_time)
+        data.setdefault("updated_at", manifest_time)
+        return Project.model_validate(data)
+
+    def get_project_record(self, pid: str) -> ProjectRecord:
+        project_dir = self._project_dir(pid)
+        if not project_dir.is_dir():
+            raise FileNotFoundError(project_dir)
+        manifest = project_dir / MANIFEST_NAME
+        updated_at = datetime.fromtimestamp(
+            (manifest if manifest.is_file() else project_dir).stat().st_mtime,
+            tz=timezone.utc,
+        )
+        has_sprite = (project_dir / "sprite.png").is_file()
+        if not manifest.is_file():
+            return ProjectRecord(pid, None, ProjectHealth.INCOMPLETE, updated_at, has_sprite)
+        try:
+            project = self.read_manifest(pid)
+        except Exception:  # noqa: BLE001 - catalog must isolate bad folders
+            return ProjectRecord(pid, None, ProjectHealth.CORRUPT, updated_at, has_sprite)
+
+        healthy = has_sprite
+        if healthy and project.action is not None:
+            healthy = all(
+                frame.status is FrameStatus.FAILED
+                or (project_dir / f"frame_{frame.index}.png").is_file()
+                for frame in project.frames
+            )
+        health = ProjectHealth.READY if healthy else ProjectHealth.INCOMPLETE
+        return ProjectRecord(pid, project, health, project.updated_at, has_sprite)
+
+    def list_project_records(self) -> list[ProjectRecord]:
+        records: list[ProjectRecord] = []
+        for child in self.root.iterdir():
+            if not child.is_dir() or not _SAFE_NAME.fullmatch(child.name):
+                continue
+            records.append(self.get_project_record(child.name))
+        return sorted(records, key=lambda record: record.updated_at, reverse=True)
 
     def list_projects(self) -> list[Project]:
-        projects: list[Project] = []
-        for child in sorted(self.root.iterdir()):
-            if not child.is_dir():
-                continue
-            manifest = child / MANIFEST_NAME
-            if manifest.is_file():
-                projects.append(
-                    Project.model_validate_json(manifest.read_text(encoding="utf-8"))
-                )
-        return projects
+        return [record.project for record in self.list_project_records() if record.project]

@@ -23,9 +23,38 @@ export interface Frame {
 
 export interface Project {
   id: string;
+  schema_version: number;
   prompt: string;
   style: Style;
   frames: Frame[];
+  action: string | null;
+  fps: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type ProjectHealth = "ready" | "incomplete" | "corrupt";
+
+export interface ProjectSummary {
+  id: string;
+  prompt_preview: string | null;
+  style: Style | null;
+  thumbnail_url: string | null;
+  action: string | null;
+  fps: number | null;
+  frame_count: number;
+  ok_count: number;
+  failed_count: number;
+  created_at: string;
+  updated_at: string;
+  health: ProjectHealth;
+  resume_available: boolean;
+}
+
+export interface ProjectDetail extends Project {
+  sprite_url: string | null;
+  health: ProjectHealth;
+  resume_available: boolean;
 }
 
 export class ApiError extends Error {
@@ -150,8 +179,12 @@ export async function listPresets(): Promise<Preset[]> {
   return unwrap<Preset[]>(await fetch("/presets"));
 }
 
-export async function listProjects(): Promise<Project[]> {
-  return unwrap<Project[]>(await fetch("/projects"));
+export async function listProjects(): Promise<ProjectSummary[]> {
+  return unwrap<ProjectSummary[]>(await fetch("/projects"));
+}
+
+export async function getProject(projectId: string): Promise<ProjectDetail> {
+  return unwrap<ProjectDetail>(await fetch(`/projects/${projectId}`));
 }
 
 export async function deleteProject(projectId: string): Promise<void> {
