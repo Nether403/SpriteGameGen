@@ -10,7 +10,9 @@ export default defineConfig({
     port: 5173,
     proxy: {
       "/generate": "http://localhost:8000",
+      "/prompts": "http://localhost:8000",
       "/animate": "http://localhost:8000",
+      "/animation-options": "http://localhost:8000",
       "/presets": "http://localhost:8000",
       "/export": "http://localhost:8000",
       "/projects": "http://localhost:8000",

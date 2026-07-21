@@ -62,8 +62,10 @@
 
 ### Live validation findings (2026-07-21)
 
-- [ ] Investigate `429 RESOURCE_EXHAUSTED` on the second sequential `gemini-3.1-flash-image` call; confirm project quota/capacity and whether production backoff is sufficient
-- [ ] Fix `gemini-3.5-flash` prompt-enhancer truncation (likely output/thinking budget interaction), then add a live acceptance sample that preserves the full subject
+- [x] Recover burst-quota `429 RESOURCE_EXHAUSTED` failures automatically with 5 attempts and a 15-second minimum cooldown; live four-frame walk completed 4/4 without manual regeneration
+- [ ] Confirm or raise production project quota/capacity; the current project needed four cooldowns and 146.6 seconds for the four-frame live acceptance run
+- [x] Fix `gemini-3.5-flash` prompt-enhancer truncation by minimizing hidden thinking, increasing the output budget, and rejecting `MAX_TOKENS` output; live sample preserved the full subject
+- [x] Give walk animations eight explicit, mirrored gait phases and require visible limb/silhouette changes in every edit prompt
 - [ ] Improve or deterministically normalize left/right directional adherence; the accepted-quality gate now treats wrong facing direction as critical
 - [ ] Re-run `validate_live_models.py --repeats 3 --include-block-probe` after the above fixes and require automated plus manual PASS
 

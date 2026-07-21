@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     gemini_model_edit: str = Field(default="gemini-3.1-flash-image")
     gemini_model_text: str = Field(default="gemini-3.5-flash")
     gemini_timeout_seconds: float = Field(default=120.0, gt=0, le=600)
+    gemini_max_retries: int = Field(default=5, ge=1, le=10)
+    gemini_backoff_seconds: float = Field(default=1.0, gt=0, le=30)
+    gemini_quota_backoff_seconds: float = Field(default=15.0, gt=0, le=120)
 
     # --- Storage / limits ---
     projects_dir: str = Field(default="./projects")

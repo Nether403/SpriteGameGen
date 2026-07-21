@@ -135,14 +135,19 @@ def test_generate_sprite_processes_and_persists_accepted_prompt(tmp_path):
 
 def test_animation_and_export_return_asset_names_not_urls(tmp_path):
     class Gemini:
-        def edit(self, base, prompt):
+        def __init__(self):
+            self.pose_references = []
+
+        def edit(self, base, prompt, *, pose_reference=None):
+            self.pose_references.append(pose_reference)
             image = Image.new("RGBA", (24, 24), (0, 0, 0, 0))
             image.paste(Image.new("RGBA", (8, 8), "red"), (8, 8))
             return image
 
     store = ProjectStore(tmp_path)
     pid = _project(store)
-    service = SpriteService(store=store, gemini=Gemini(), remover=lambda image: image)
+    gemini = Gemini()
+    service = SpriteService(store=store, gemini=gemini, remover=lambda image: image)
 
     animation = service.animate(
         AnimateRequest(
@@ -159,6 +164,8 @@ def test_animation_and_export_return_asset_names_not_urls(tmp_path):
         "frame_2.png",
         "frame_3.png",
     ]
+    assert len(gemini.pose_references) == 4
+    assert all(reference is not None for reference in gemini.pose_references)
 
     exported = service.export_sheet(pid, ExportOptions(format="json"))
     assert exported.sheet_filename == "sprite_sheet.png"

@@ -4,6 +4,8 @@ A locally-run web app that turns a text prompt (and optional reference image) in
 clean, engine-ready animated sprite sheet. Gemini (via Vertex AI / Google Agent
 Platform) does the generative work; a deterministic Python pipeline handles background
 removal, pixel-art quantization, sprite-sheet packing, and atlas metadata.
+Side-scroller walks also provide Gemini with deterministic eight-phase pose guides,
+so frames change limb geometry instead of merely restyling the same stance.
 
 See the design spec in [`docs/superpowers/specs/`](docs/superpowers/specs/) and the
 implementation plan in [`docs/superpowers/plans/`](docs/superpowers/plans/).
@@ -42,6 +44,9 @@ a service-account JSON key — not a `GEMINI_API_KEY`. Set in `.env`:
 | `GEMINI_MODEL_EDIT` | Stage 2 model (default `gemini-3.1-flash-image`) |
 | `GEMINI_MODEL_TEXT` | Optional prompt-preview model (default `gemini-3.5-flash`) |
 | `GEMINI_TIMEOUT_SECONDS` | Per-attempt Gemini request timeout (default `120`) |
+| `GEMINI_MAX_RETRIES` | Maximum attempts for retryable Gemini failures (default `5`) |
+| `GEMINI_BACKOFF_SECONDS` | Initial retry delay for non-quota failures; subsequent delays double (default `1`) |
+| `GEMINI_QUOTA_BACKOFF_SECONDS` | Minimum delay after `429 RESOURCE_EXHAUSTED` before an automatic retry (default `15`) |
 | `PROJECTS_DIR` | Output dir (default `./projects`) |
 
 > The service-account key must stay local — it is git-ignored (`project-*.json`) and

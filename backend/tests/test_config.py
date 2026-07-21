@@ -19,6 +19,9 @@ def _clear_env(monkeypatch, tmp_path):
         "PROJECTS_DIR",
         "MAX_UPLOAD_BYTES",
         "GEMINI_TIMEOUT_SECONDS",
+        "GEMINI_MAX_RETRIES",
+        "GEMINI_BACKOFF_SECONDS",
+        "GEMINI_QUOTA_BACKOFF_SECONDS",
     ):
         monkeypatch.delenv(key, raising=False)
 
@@ -53,6 +56,9 @@ def test_reads_env_and_defaults(monkeypatch, tmp_path):
     assert settings.gemini_model_edit == "gemini-3.1-flash-image"
     assert settings.gemini_model_text == "gemini-3.5-flash"
     assert settings.gemini_timeout_seconds == 120
+    assert settings.gemini_max_retries == 5
+    assert settings.gemini_backoff_seconds == 1
+    assert settings.gemini_quota_backoff_seconds == 15
 
 
 def test_model_ids_and_region_overridable(monkeypatch, tmp_path):
@@ -62,6 +68,9 @@ def test_model_ids_and_region_overridable(monkeypatch, tmp_path):
     monkeypatch.setenv("GEMINI_MODEL_EDIT", "gemini-3-pro-image")
     monkeypatch.setenv("GEMINI_MODEL_TEXT", "gemini-3.5-flash-lite")
     monkeypatch.setenv("GEMINI_TIMEOUT_SECONDS", "37")
+    monkeypatch.setenv("GEMINI_MAX_RETRIES", "7")
+    monkeypatch.setenv("GEMINI_BACKOFF_SECONDS", "2.5")
+    monkeypatch.setenv("GEMINI_QUOTA_BACKOFF_SECONDS", "20")
     config = _fresh_config()
 
     settings = config.get_settings()
@@ -70,6 +79,9 @@ def test_model_ids_and_region_overridable(monkeypatch, tmp_path):
     assert settings.gemini_model_edit == "gemini-3-pro-image"
     assert settings.gemini_model_text == "gemini-3.5-flash-lite"
     assert settings.gemini_timeout_seconds == 37
+    assert settings.gemini_max_retries == 7
+    assert settings.gemini_backoff_seconds == 2.5
+    assert settings.gemini_quota_backoff_seconds == 20
 
 
 def test_missing_project_fails_loud(monkeypatch, tmp_path):

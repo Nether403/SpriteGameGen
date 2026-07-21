@@ -90,6 +90,12 @@ Exceeding a latency target is highlighted for review but does not by itself turn
 single small-sample run into a failure. Treat repeated over-target results, throttling,
 or timeouts as a release blocker until rechecked against Vertex status and quota.
 
+The 2026-07-21 local acceptance run exposed a burst-quota limit after two immediate
+image edits. With a 15-second quota cooldown and pose-reference inputs enabled, a
+four-frame walk completed 4/4 without manual regeneration in 146.6 seconds. This
+validates recovery behavior, not production capacity: confirm or raise the deployed
+project's quota before release and include throttled runs in latency planning.
+
 ## Manual output-quality rubric
 
 Open every artifact referenced by `review.json` and score each criterion `0`, `1`, or

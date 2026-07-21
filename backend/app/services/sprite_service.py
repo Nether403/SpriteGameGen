@@ -29,7 +29,7 @@ from app.pipeline import atlas, background, packer, pixelate, trim
 from app.pipeline.background import BackgroundRemovalError
 from app.pipeline.pixelate import PixelateError
 from app.pipeline.trim import DegenerateBBoxError, EmptyImageError
-from app.services import prompt_builder
+from app.services import pose_reference, prompt_builder
 from app.services.gemini_client import GeminiError, SafetyBlockedError
 from app.storage.project_store import ProjectRecord, ProjectStore
 
@@ -245,7 +245,15 @@ class SpriteService:
                 request.direction,
             )
             try:
-                edited = self.gemini.edit(base, frame_prompt)
+                edited = self._edit_frame(
+                    base,
+                    frame_prompt,
+                    request.action,
+                    index,
+                    total,
+                    project.view_mode,
+                    request.direction,
+                )
                 cut_by_index[index] = background.remove(
                     edited, remover=self.remover
                 )
@@ -334,7 +342,15 @@ class SpriteService:
             project.direction,
         )
         try:
-            edited = self.gemini.edit(base, frame_prompt)
+            edited = self._edit_frame(
+                base,
+                frame_prompt,
+                project.action,
+                index,
+                total,
+                project.view_mode,
+                project.direction,
+            )
             cut = background.remove(edited, remover=self.remover)
             sprite = self._fit_to_size(cut, target_size)
             if project.style is Style.PIXEL:
@@ -364,6 +380,28 @@ class SpriteService:
             filename=filename,
             project=project,
         )
+
+    def _edit_frame(
+        self,
+        base: Image.Image,
+        frame_prompt: str,
+        action: str,
+        index: int,
+        total: int,
+        view_mode: ViewMode,
+        direction: Direction,
+    ) -> Image.Image:
+        """Edit one frame, adding a structural guide where the model needs it."""
+        guide = None
+        if action == "walk" and view_mode is ViewMode.SIDE_SCROLLER:
+            guide = pose_reference.walk_pose_reference(index, total, direction)
+            frame_prompt += (
+                " The first input image is the character identity and art-style "
+                "reference. The second input image is a pose-only skeleton: copy "
+                "its torso, hip, knee, ankle, foot, and arm positions, but never "
+                "copy its stick-figure style or colors."
+            )
+        return self.gemini.edit(base, frame_prompt, pose_reference=guide)
 
     def delete_frame(self, project_id: str, index: int) -> AnimationResult:
         project = self._read_project(project_id)

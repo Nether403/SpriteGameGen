@@ -147,6 +147,19 @@ def test_edit_uses_edit_model_and_passes_base_image():
     assert any(_is_image_part(c) for c in contents)
 
 
+def test_edit_appends_optional_pose_reference_as_second_image():
+    base = Image.new("RGBA", (6, 6), (5, 5, 5, 255))
+    pose = Image.new("RGB", (8, 8), "white")
+    client, sdk = _make_client([_Response([_Part(_png_bytes())])])
+
+    client.edit(base, "copy the pose", pose_reference=pose)
+
+    contents = _as_list(sdk.models.calls[0]["contents"])
+    image_parts = [part for part in contents if _is_image_part(part)]
+    assert len(image_parts) == 2
+    assert contents[-1] == "copy the pose"
+
+
 # --- prompt enhancement ---
 
 def test_enhance_prompt_uses_text_model_and_bounded_text_config():
@@ -165,7 +178,8 @@ def test_enhance_prompt_uses_text_model_and_bounded_text_config():
     call = sdk.models.calls[0]
     assert call["model"] == "text-model"
     assert call["config"].temperature == 0.2
-    assert call["config"].max_output_tokens == 300
+    assert call["config"].max_output_tokens == 512
+    assert call["config"].thinking_config.thinking_level.value == "MINIMAL"
     assert call["config"].response_mime_type == "text/plain"
     assert call["config"].http_options.timeout == 120_000
     assert "top_down_2_5d" in call["contents"][0]
@@ -188,6 +202,15 @@ def test_enhance_prompt_rejects_empty_or_safety_output():
     assert len(sdk.models.calls) == 1
 
 
+def test_enhance_prompt_rejects_truncated_max_tokens_output():
+    truncated, _ = _make_client(
+        [_Response([_Part()], finish_reason="MAX_TOKENS", text="A chunky robot in a")]
+    )
+
+    with pytest.raises(GeminiError, match="truncated"):
+        truncated.enhance_prompt("a battle robot", Style.PIXEL)
+
+
 # --- error handling ---
 
 def test_transient_error_is_retried_then_succeeds():
@@ -206,6 +229,26 @@ def test_transient_error_exhausts_retries_raises_gemini_error():
     with pytest.raises(GeminiError):
         client.generate("a knight", Style.PIXEL)
     assert len(sdk.models.calls) == 3
+
+
+def test_image_quota_recovery_uses_a_meaningful_cooldown():
+    delays = []
+    sdk = FakeSDK(
+        [RuntimeError("429 resource exhausted")] * 4
+        + [_Response([_Part(_png_bytes())])]
+    )
+    client = GeminiClient(
+        client=sdk,
+        model_generate="gen-model",
+        model_edit="edit-model",
+        model_text="text-model",
+        sleep=delays.append,
+    )
+
+    client.generate("a knight", Style.PIXEL)
+
+    assert delays == [15.0, 15.0, 15.0, 15.0]
+    assert len(sdk.models.calls) == 5
 
 
 def test_safety_refusal_maps_to_safety_error_and_not_retried():

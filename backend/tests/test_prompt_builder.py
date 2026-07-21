@@ -77,6 +77,27 @@ def test_frame_prompt_is_data_driven_not_branched():
         assert p["action"] in out.lower()
 
 
+def test_walk_cycle_uses_distinct_explicit_leg_phases():
+    prompts = [pb.frame_prompt("walk", index, 8).lower() for index in range(8)]
+
+    assert len(set(prompts)) == 8
+    assert all("leg" in prompt or "foot" in prompt for prompt in prompts)
+    assert "near leg reaches far forward" in prompts[0]
+    assert "far leg reaches far forward" in prompts[4]
+    assert all("not as a pose reference" in prompt for prompt in prompts)
+    assert all("keeps the supplied stance is invalid" in prompt for prompt in prompts)
+    assert all("unmistakable at thumbnail size" in prompt for prompt in prompts)
+
+
+def test_short_walk_cycle_keeps_mirrored_contact_and_passing_poses():
+    prompts = [pb.frame_prompt("walk", index, 4).lower() for index in range(4)]
+
+    assert "near leg reaches far forward" in prompts[0]
+    assert "far thigh swings forward" in prompts[1]
+    assert "far leg reaches far forward" in prompts[2]
+    assert "near thigh swings forward" in prompts[3]
+
+
 def test_frame_prompt_unknown_action_raises():
     with pytest.raises(KeyError):
         pb.frame_prompt("moonwalk", 0, 6)

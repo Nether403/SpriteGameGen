@@ -36,7 +36,7 @@ class FakeGemini:
         img.paste(block, (22, 20))
         return img
 
-    def edit(self, base_img, prompt):  # not used in Stage 1
+    def edit(self, base_img, prompt, *, pose_reference=None):  # not used in Stage 1
         raise NotImplementedError
 
 

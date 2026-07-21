@@ -64,7 +64,7 @@ async def test_mcp_creative_workflow_uses_service_and_returns_local_paths(tmp_pa
         def generate(self, prompt, style, reference=None, *, view_mode, direction):
             return self._image()
 
-        def edit(self, base, prompt):
+        def edit(self, base, prompt, *, pose_reference=None):
             return self._image()
 
     service = SpriteService(

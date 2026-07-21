@@ -27,7 +27,7 @@ class FakeGemini:
     ):
         return self._sprite()
 
-    def edit(self, base_img, prompt):
+    def edit(self, base_img, prompt, *, pose_reference=None):
         return self._sprite()
 
 

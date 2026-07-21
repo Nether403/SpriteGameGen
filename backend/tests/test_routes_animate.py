@@ -23,6 +23,7 @@ class FakeGemini:
     def __init__(self, fail_on: set[int] | None = None):
         self.fail_on = fail_on or set()
         self.edit_prompts: list[str] = []
+        self.pose_references: list[Image.Image | None] = []
 
     def _sprite(self):
         img = Image.new("RGBA", (64, 64), (0, 255, 0, 255))  # green bg
@@ -34,9 +35,10 @@ class FakeGemini:
     ):
         return self._sprite()
 
-    def edit(self, base_img, prompt):
+    def edit(self, base_img, prompt, *, pose_reference=None):
         index = len(self.edit_prompts)
         self.edit_prompts.append(prompt)
+        self.pose_references.append(pose_reference)
         if index in self.fail_on:
             raise GeminiError("simulated frame failure")
         return self._sprite()

@@ -51,6 +51,11 @@ def _is_timeout(exc: Exception) -> bool:
     return isinstance(exc, TimeoutError) or "timeout" in text or "deadline" in text
 
 
+def _is_quota_exhausted(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return "429" in text or "resource_exhausted" in text or "resource exhausted" in text
+
+
 class GeminiClient:
     def __init__(
         self,
@@ -59,8 +64,9 @@ class GeminiClient:
         model_generate: str,
         model_edit: str,
         model_text: str,
-        max_retries: int = 3,
-        backoff_base: float = 0.5,
+        max_retries: int = 5,
+        backoff_base: float = 1.0,
+        quota_backoff_s: float = 15.0,
         timeout_s: float = 120.0,
         sleep: Callable[[float], None] = time.sleep,
     ):
@@ -70,6 +76,7 @@ class GeminiClient:
         self._model_text = model_text
         self._max_retries = max(1, max_retries)
         self._backoff_base = backoff_base
+        self._quota_backoff_s = quota_backoff_s
         self._timeout_s = timeout_s
         self._sleep = sleep
 
@@ -97,7 +104,13 @@ class GeminiClient:
         response = self._request(self._model_generate, contents, config)
         return self._parse_image(response)
 
-    def edit(self, base_img: Image.Image, prompt: str) -> Image.Image:
+    def edit(
+        self,
+        base_img: Image.Image,
+        prompt: str,
+        *,
+        pose_reference: Image.Image | None = None,
+    ) -> Image.Image:
         from google.genai import types
 
         # The original base image is passed on every call (never chained), so
@@ -106,8 +119,14 @@ class GeminiClient:
             types.Part.from_bytes(
                 data=_to_png_bytes(base_img), mime_type="image/png"
             ),
-            prompt,
         ]
+        if pose_reference is not None:
+            contents.append(
+                types.Part.from_bytes(
+                    data=_to_png_bytes(pose_reference), mime_type="image/png"
+                )
+            )
+        contents.append(prompt)
         config = self._content_config(types)
         response = self._request(self._model_edit, contents, config)
         return self._parse_image(response)
@@ -143,7 +162,13 @@ class GeminiClient:
         config = types.GenerateContentConfig(
             system_instruction=system_instruction,
             temperature=0.2,
-            max_output_tokens=300,
+            # Gemini 3.5 Flash counts hidden thought tokens against this cap.
+            # Prompt rewriting needs almost no reasoning; MINIMAL prevents the
+            # model from spending the budget before producing visible text.
+            thinking_config=types.ThinkingConfig(
+                thinking_level=types.ThinkingLevel.MINIMAL
+            ),
+            max_output_tokens=512,
             response_mime_type="text/plain",
             http_options=types.HttpOptions(
                 timeout=max(1, round(self._timeout_s * 1000))
@@ -169,7 +194,13 @@ class GeminiClient:
             except Exception as exc:  # noqa: BLE001 — classify below
                 last_exc = exc
                 if _is_transient(exc) and attempt < self._max_retries - 1:
-                    self._sleep(self._backoff_base * (2**attempt))
+                    delay = self._backoff_base * (2**attempt)
+                    if _is_quota_exhausted(exc):
+                        # Vertex image quotas commonly need a meaningful cooldown;
+                        # rapid exponential retries only repeat the same 429 and
+                        # force users to regenerate frames manually.
+                        delay = max(delay, self._quota_backoff_s)
+                    self._sleep(delay)
                     continue
                 if _is_timeout(exc) and attempt == self._max_retries - 1:
                     raise GeminiTimeoutError(
@@ -223,6 +254,10 @@ class GeminiClient:
         if any(marker in finish.upper() for marker in _SAFETY_MARKERS):
             raise SafetyBlockedError(
                 "Request was blocked by safety filters — try rephrasing the prompt."
+            )
+        if "MAX_TOKENS" in finish.upper():
+            raise GeminiError(
+                "Gemini prompt enhancement was truncated; using the raw prompt instead."
             )
 
         result = str(getattr(response, "text", "") or "").strip()
@@ -285,4 +320,7 @@ def build_default_client() -> GeminiClient:
         # Keep compatibility with lightweight settings fakes used by callers
         # that predate the timeout setting; production Settings always exposes it.
         timeout_s=getattr(settings, "gemini_timeout_seconds", 120.0),
+        max_retries=getattr(settings, "gemini_max_retries", 5),
+        backoff_base=getattr(settings, "gemini_backoff_seconds", 1.0),
+        quota_backoff_s=getattr(settings, "gemini_quota_backoff_seconds", 15.0),
     )
