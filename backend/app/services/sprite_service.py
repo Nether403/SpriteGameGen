@@ -448,7 +448,7 @@ class SpriteService:
                 " The first input image is the character identity and art-style "
                 "reference. The second input image is a pose-only skeleton: copy "
                 "its torso, hip, knee, ankle, foot, and arm positions, but never "
-                "copy its stick-figure style or colors."
+                "copy its stick-figure style, colors, background, or any guide lines."
             )
         return self.image_provider.edit(base, frame_prompt, pose_reference=guide)
 

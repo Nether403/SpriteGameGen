@@ -11,6 +11,8 @@ def test_walk_pose_guides_are_distinct_and_select_eight_cycle_phases():
 
     assert all(image.mode == "RGB" and image.size == (256, 256) for image in guides)
     assert len({image.tobytes() for image in guides}) == 8
+    # No visible floor line: image models tend to copy guide marks literally.
+    assert guides[0].getpixel((40, 226)) == (255, 255, 255)
 
 
 def test_four_frame_walk_uses_mirrored_contact_and_passing_guides():

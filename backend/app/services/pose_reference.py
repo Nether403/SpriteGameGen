@@ -45,8 +45,6 @@ def walk_pose_reference(index: int, total: int, direction: Direction) -> Image.I
     hip = (128, 125)
     image = Image.new("RGB", (_SIZE, _SIZE), "white")
     draw = ImageDraw.Draw(image)
-    draw.line(((36, _GROUND_Y), (220, _GROUND_Y)), fill="#b8b8b8", width=4)
-
     # Simple upper body gives the model scale and joint placement without
     # competing with the source character's design or equipment.
     draw.line((shoulder, hip), fill="#111111", width=12)

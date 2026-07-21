@@ -50,8 +50,9 @@ _STYLE_DIRECTIVES: dict[Style, str] = {
 _FRAME_TEMPLATE = (
     "POSE GOAL: {pose}. {change_directive} Keep the same character and preserve "
     "the exact design, proportions, equipment, colors, lighting, and rendering "
-    "style. Keep the complete character centered and inside the canvas on a fixed "
-    "ground line. Do not merely repaint or restyle the source. Animation frame "
+    "style. Keep the complete character centered and inside the canvas with its "
+    "feet aligned to a consistent invisible baseline; do not draw a floor, baseline, "
+    "shadow, or scenery. Do not merely repaint or restyle the source. Animation frame "
     "{i} of {n} in a {action} cycle, designed to loop smoothly."
 )
 
