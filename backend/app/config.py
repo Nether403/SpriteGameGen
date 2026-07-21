@@ -36,6 +36,7 @@ class Settings(BaseSettings):
     # --- Model IDs (config-only; read only by gemini_client) ---
     gemini_model_generate: str = Field(default="gemini-3.1-flash-image")
     gemini_model_edit: str = Field(default="gemini-3.1-flash-image")
+    gemini_timeout_seconds: float = Field(default=120.0, gt=0, le=600)
 
     # --- Storage / limits ---
     projects_dir: str = Field(default="./projects")

@@ -2,7 +2,9 @@
 import numpy as np
 from PIL import Image
 
-from app.pipeline.background import remove
+import pytest
+
+from app.pipeline.background import BackgroundRemovalError, remove
 
 
 def test_remove_uses_injected_remover_and_returns_rgba():
@@ -41,3 +43,8 @@ def test_remove_preserves_dimensions():
     src = Image.new("RGB", (13, 7), (0, 0, 0))
     result = remove(src, remover=lambda im: im.convert("RGBA"))
     assert result.size == (13, 7)
+
+
+def test_remove_wraps_remover_failure():
+    with pytest.raises(BackgroundRemovalError):
+        remove(Image.new("RGBA", (4, 4)), remover=lambda _img: (_ for _ in ()).throw(RuntimeError("rembg failed")))

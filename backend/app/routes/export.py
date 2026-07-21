@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from app.deps import get_store
 from app.models import ExportFormat, FrameStatus
 from app.pipeline import atlas, packer
+from app.services.asset_urls import asset_url
 from app.storage.project_store import ProjectStore
 
 router = APIRouter()
@@ -30,6 +31,17 @@ def export(req: ExportRequest, store: ProjectStore = Depends(get_store)):
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="project not found")
 
+    failed_count = sum(1 for f in project.frames if f.status is FrameStatus.FAILED)
+    if failed_count:
+        plural = "frame" if failed_count == 1 else "frames"
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Project has {failed_count} failed {plural}; "
+                "regenerate or delete them before export."
+            ),
+        )
+
     ok_frames = [f for f in project.frames if f.status is FrameStatus.OK]
     if not ok_frames:
         raise HTTPException(status_code=422, detail="project has no usable frames")
@@ -47,6 +59,6 @@ def export(req: ExportRequest, store: ProjectStore = Depends(get_store)):
     store.write_text(req.project_id, atlas_name, atlas_str)
 
     return {
-        "sheet_url": f"/projects/{req.project_id}/sprite_sheet.png",
-        "atlas_url": f"/projects/{req.project_id}/{atlas_name}",
+        "sheet_url": asset_url(req.project_id, "sprite_sheet.png"),
+        "atlas_url": asset_url(req.project_id, atlas_name),
     }

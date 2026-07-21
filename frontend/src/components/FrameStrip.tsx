@@ -11,12 +11,16 @@ import { useProjectStore } from "../state/project";
 export function FrameStrip() {
   const { projectId, frames, setFrame, setAnimation, action } = useProjectStore();
   const [busyIndex, setBusyIndex] = useState<number | null>(null);
+  const [bulkBusy, setBulkBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   if (!projectId || frames.length === 0) return null;
 
+  const failedFrames = frames.filter((frame) => frame.status === "failed");
+  const okCount = frames.length - failedFrames.length;
+
   async function onRegenerate(index: number) {
-    if (!projectId) return;
+    if (!projectId || bulkBusy) return;
     setBusyIndex(index);
     setError(null);
     try {
@@ -30,7 +34,7 @@ export function FrameStrip() {
   }
 
   async function onDelete(index: number) {
-    if (!projectId || action === null) return;
+    if (!projectId || action === null || bulkBusy) return;
     setBusyIndex(index);
     setError(null);
     try {
@@ -43,9 +47,44 @@ export function FrameStrip() {
     }
   }
 
+  async function onRegenerateFailed() {
+    if (!projectId || bulkBusy) return;
+    const targets = failedFrames.map((frame) => frame.index);
+    setBulkBusy(true);
+    setError(null);
+    let failures = 0;
+    for (const index of targets) {
+      setBusyIndex(index);
+      try {
+        const frame = await regenerateFrame(projectId, index);
+        setFrame(frame);
+        if (frame.status === "failed") failures += 1;
+      } catch {
+        failures += 1;
+      }
+    }
+    setBusyIndex(null);
+    setBulkBusy(false);
+    if (failures > 0) {
+      setError(`${failures} frame${failures === 1 ? "" : "s"} still failed.`);
+    }
+  }
+
   return (
     <div className="frame-strip">
       <h3>Frames</h3>
+      {failedFrames.length > 0 && (
+        <div className="failure-summary" role="status">
+          <span>
+            {okCount}/{frames.length} frames succeeded — {failedFrames.length} failed.
+          </span>
+          <button type="button" onClick={onRegenerateFailed} disabled={bulkBusy}>
+            {bulkBusy
+              ? `Regenerating frame ${busyIndex === null ? "" : busyIndex + 1}…`
+              : "Regenerate failed frames"}
+          </button>
+        </div>
+      )}
       <ul>
         {frames.map((frame) => (
           <li key={frame.index} className={`frame frame-${frame.status}`}>
@@ -61,7 +100,7 @@ export function FrameStrip() {
               <button
                 type="button"
                 onClick={() => onRegenerate(frame.index)}
-                disabled={busyIndex === frame.index}
+                disabled={bulkBusy || busyIndex === frame.index}
                 aria-label={`Regenerate frame ${frame.index + 1}`}
               >
                 {busyIndex === frame.index ? "…" : "Regenerate"}
@@ -69,7 +108,7 @@ export function FrameStrip() {
               <button
                 type="button"
                 onClick={() => onDelete(frame.index)}
-                disabled={busyIndex !== null}
+                disabled={bulkBusy || busyIndex !== null}
                 aria-label={`Delete frame ${frame.index + 1}`}
               >
                 Delete

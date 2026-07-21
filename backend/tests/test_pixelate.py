@@ -3,7 +3,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from app.pipeline.pixelate import quantize
+from app.pipeline.pixelate import PixelateError, quantize
 
 
 def _gradient(size=(32, 32)):
@@ -80,3 +80,14 @@ def test_quantize_rejects_bad_params():
         quantize(img, colors=0, downscale=1)
     with pytest.raises(ValueError):
         quantize(img, colors=8, downscale=0)
+
+
+def test_quantize_wraps_processing_failure(monkeypatch):
+    img = _gradient()
+
+    def fail(*_args, **_kwargs):
+        raise OSError("image operation failed")
+
+    monkeypatch.setattr(Image.Image, "resize", fail)
+    with pytest.raises(PixelateError):
+        quantize(img, colors=8, downscale=2)

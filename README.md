@@ -40,6 +40,7 @@ a service-account JSON key — not a `GEMINI_API_KEY`. Set in `.env`:
 | `GOOGLE_CLOUD_REGION` | Vertex region (default `global`) |
 | `GEMINI_MODEL_GENERATE` | Stage 1 model (default `gemini-3.1-flash-image`) |
 | `GEMINI_MODEL_EDIT` | Stage 2 model (default `gemini-3.1-flash-image`) |
+| `GEMINI_TIMEOUT_SECONDS` | Per-attempt Gemini request timeout (default `120`) |
 | `PROJECTS_DIR` | Output dir (default `./projects`) |
 
 > The service-account key must stay local — it is git-ignored (`project-*.json`) and

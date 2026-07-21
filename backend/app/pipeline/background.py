@@ -12,6 +12,10 @@ from PIL import Image
 
 Remover = Callable[[Image.Image], Image.Image]
 
+
+class BackgroundRemovalError(RuntimeError):
+    """A recoverable failure from the background-removal dependency."""
+
 # Lazily-built default rembg session (kept module-level so the model loads once).
 _default_session = None
 
@@ -34,7 +38,10 @@ def remove(img: Image.Image, *, remover: Remover | None = None) -> Image.Image:
         remover: injectable cutout function; defaults to a lazy rembg session.
     """
     fn = remover if remover is not None else _default_remover
-    result = fn(img)
+    try:
+        result = fn(img)
+    except Exception as exc:  # noqa: BLE001 - isolate the external remover boundary
+        raise BackgroundRemovalError(f"background removal failed: {exc}") from exc
     if result.mode != "RGBA":
         result = result.convert("RGBA")
     return result

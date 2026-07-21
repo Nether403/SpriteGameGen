@@ -126,7 +126,7 @@ async def test_export_multi_frame_xml(client, app_and_store):
 
     resp = await client.post("/export", json={"project_id": pid, "format": "xml"})
     assert resp.status_code == 200
-    assert resp.json()["atlas_url"].endswith(".xml")
+    assert resp.json()["atlas_url"].split("?", 1)[0].endswith(".xml")
 
     root = ET.fromstring(_read_atlas(store, pid, "sprite.xml"))
     assert root.tag == "TextureAtlas"

@@ -41,6 +41,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
   setFrame: (frame) =>
     set((state) => ({
       frames: state.frames.map((f) => (f.index === frame.index ? frame : f)),
+      exportResult: null,
     })),
   setExport: (exportResult) => set({ exportResult }),
   reset: () =>

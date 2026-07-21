@@ -6,6 +6,8 @@ from PIL import Image
 
 from app.deps import get_gemini_client, get_store
 from app.main import create_app
+from app.models import Style
+from app.pipeline.pixelate import PixelateError
 from app.services.gemini_client import GeminiError
 from app.storage.project_store import ProjectStore
 
@@ -45,10 +47,10 @@ def _fake_remover(img: Image.Image) -> Image.Image:
     return Image.fromarray(arr, "RGBA")
 
 
-def _make(tmp_path, fail_on=None):
+def _make(tmp_path, fail_on=None, remover=_fake_remover):
     store = ProjectStore(root=tmp_path)
     fake = FakeGemini(fail_on=fail_on)
-    app = create_app(remover=_fake_remover)
+    app = create_app(remover=remover)
     app.dependency_overrides[get_store] = lambda: store
     app.dependency_overrides[get_gemini_client] = lambda: fake
     return app, store, fake
@@ -128,6 +130,55 @@ async def test_animate_partial_failure_marks_frame_failed(tmp_path):
     assert len(failed) == 1
     assert failed[0]["index"] == 2
     assert failed[0]["url"] is None
+
+
+async def test_animate_background_failure_isolated_to_one_frame(tmp_path):
+    calls = 0
+
+    def flaky_remover(img):
+        nonlocal calls
+        calls += 1
+        if calls == 2:  # generate uses call 1; animation frame 0 uses call 2
+            raise RuntimeError("simulated remover failure")
+        return _fake_remover(img)
+
+    app, _, _ = _make(tmp_path, remover=flaky_remover)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        pid = await _generate(c)
+        resp = await c.post("/animate", json={"project_id": pid, "action": "walk", "frames": 4})
+
+    assert resp.status_code == 200
+    frames = resp.json()["frames"]
+    assert [f["status"] for f in frames].count("failed") == 1
+    assert frames[0]["status"] == "failed"
+
+
+async def test_animate_pixelate_failure_isolated_to_one_frame(tmp_path, monkeypatch):
+    app, store, _ = _make(tmp_path)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        pid = await _generate(c, style="hires")
+        project = store.read_manifest(pid)
+        project.style = Style.PIXEL
+        store.write_manifest(pid, project)
+
+        calls = 0
+
+        def flaky_quantize(img):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise PixelateError("simulated quantize failure")
+            return img
+
+        monkeypatch.setattr("app.routes.animate.pixelate.quantize", flaky_quantize)
+        resp = await c.post("/animate", json={"project_id": pid, "action": "walk", "frames": 4})
+
+    assert resp.status_code == 200
+    frames = resp.json()["frames"]
+    assert [f["status"] for f in frames].count("failed") == 1
+    assert frames[1]["status"] == "failed"
     # other frames still succeeded
     assert sum(1 for f in frames if f["status"] == "ok") == 3
 
@@ -173,7 +224,8 @@ async def test_regenerate_frame_replaces_single_frame(client, app_and_store):
     frame = resp.json()
     assert frame["index"] == 2
     assert frame["status"] == "ok"
-    assert frame["url"].endswith("frame_2.png")
+    assert frame["url"].split("?", 1)[0].endswith("frame_2.png")
+    assert "v=" in frame["url"]
 
     # regenerated frame keeps sibling size (no jitter)
     assert store.load_image(pid, "frame_2").size == sibling_size
@@ -267,6 +319,19 @@ async def test_delete_failed_frame_keeps_ok_frames_aligned(client, tmp_path):
     assert frames[0]["status"] == "failed"
     assert frames[0]["url"] is None
     assert frames[1]["status"] == "ok"
+
+
+async def test_export_blocks_animation_with_failed_frames(client, app_and_store):
+    _, store, fake = app_and_store
+    pid = await _generate(client)
+    fake.fail_on = {1}
+    await client.post("/animate", json={"project_id": pid, "action": "walk", "frames": 4})
+
+    resp = await client.post("/export", json={"project_id": pid, "format": "json"})
+
+    assert resp.status_code == 409
+    assert "1 failed frame" in resp.json()["detail"]
+    assert not (store.root / pid / "sprite_sheet.png").exists()
 
 
 async def test_delete_frame_out_of_range_422(client):

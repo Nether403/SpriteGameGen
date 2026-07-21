@@ -9,6 +9,10 @@ from __future__ import annotations
 from PIL import Image
 
 
+class PixelateError(RuntimeError):
+    """A recoverable failure while processing one frame for pixel-art output."""
+
+
 def quantize(img: Image.Image, colors: int = 32, downscale: int = 1) -> Image.Image:
     """Reduce ``img`` to a pixel-art look.
 
@@ -26,24 +30,27 @@ def quantize(img: Image.Image, colors: int = 32, downscale: int = 1) -> Image.Im
     if downscale < 1:
         raise ValueError("downscale must be >= 1")
 
-    rgba = img if img.mode == "RGBA" else img.convert("RGBA")
-    w, h = rgba.size
+    try:
+        rgba = img if img.mode == "RGBA" else img.convert("RGBA")
+        w, h = rgba.size
 
-    if downscale > 1:
-        small = rgba.resize(
-            (max(1, w // downscale), max(1, h // downscale)), Image.NEAREST
+        if downscale > 1:
+            small = rgba.resize(
+                (max(1, w // downscale), max(1, h // downscale)), Image.NEAREST
+            )
+        else:
+            small = rgba
+
+        r, g, b, a = small.split()
+        rgb = Image.merge("RGB", (r, g, b))
+        palette_img = rgb.quantize(
+            colors=colors, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.NONE
         )
-    else:
-        small = rgba
+        rgb_q = palette_img.convert("RGB")
+        result = Image.merge("RGBA", (*rgb_q.split(), a))
 
-    r, g, b, a = small.split()
-    rgb = Image.merge("RGB", (r, g, b))
-    palette_img = rgb.quantize(
-        colors=colors, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.NONE
-    )
-    rgb_q = palette_img.convert("RGB")
-    result = Image.merge("RGBA", (*rgb_q.split(), a))
-
-    if downscale > 1:
-        result = result.resize((w, h), Image.NEAREST)
-    return result
+        if downscale > 1:
+            result = result.resize((w, h), Image.NEAREST)
+        return result
+    except Exception as exc:  # noqa: BLE001 - isolate Pillow processing per frame
+        raise PixelateError(f"pixel-art processing failed: {exc}") from exc

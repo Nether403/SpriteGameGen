@@ -6,14 +6,15 @@ import { exportProject, type ExportFormat } from "../api/client";
 import { useProjectStore } from "../state/project";
 
 export function ExportPanel() {
-  const { projectId, exportResult, setExport } = useProjectStore();
+  const { projectId, frames, exportResult, setExport } = useProjectStore();
   const [format, setFormat] = useState<ExportFormat>("json");
   const [padding, setPadding] = useState(0);
   const [cols, setCols] = useState<number | "">("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const disabled = !projectId || busy;
+  const failedCount = frames.filter((frame) => frame.status === "failed").length;
+  const disabled = !projectId || busy || failedCount > 0;
 
   async function onExport() {
     if (!projectId) return;
@@ -70,6 +71,9 @@ export function ExportPanel() {
       </button>
 
       {!projectId && <p className="hint">Generate a sprite first.</p>}
+      {projectId && failedCount > 0 && (
+        <p className="hint">Regenerate or delete failed frames before exporting.</p>
+      )}
       {error && <p className="error">{error}</p>}
 
       {exportResult && (

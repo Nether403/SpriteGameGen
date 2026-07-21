@@ -8,6 +8,7 @@ from app.models import Style
 from app.services.gemini_client import (
     GeminiClient,
     GeminiError,
+    GeminiTimeoutError,
     SafetyBlockedError,
 )
 
@@ -92,6 +93,24 @@ def test_generate_uses_generate_model_and_image_modality():
     assert call["model"] == "gen-model"
     # response_modalities requests an image
     assert list(call["config"].response_modalities) == ["IMAGE"]
+    assert call["config"].http_options.timeout == 120_000
+
+
+def test_timeout_is_configurable_and_classified_after_retries():
+    client, sdk = _make_client([TimeoutError("request timed out")] * 2, max_retries=2, timeout_s=7.5)
+
+    with pytest.raises(GeminiTimeoutError):
+        client.generate("a knight", Style.PIXEL)
+
+    assert len(sdk.models.calls) == 2
+    assert all(call["config"].http_options.timeout == 7_500 for call in sdk.models.calls)
+
+
+def test_sdk_timeout_named_exception_is_classified():
+    client, _ = _make_client([RuntimeError("deadline exceeded")] * 1, max_retries=1)
+
+    with pytest.raises(GeminiTimeoutError):
+        client.generate("a knight", Style.PIXEL)
 
 
 def test_generate_without_reference_sends_text_only():

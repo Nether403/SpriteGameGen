@@ -17,8 +17,11 @@ from pydantic import BaseModel, Field
 from app.deps import get_gemini_client, get_store
 from app.models import AnimateRequest, Frame, FrameStatus, Style
 from app.pipeline import background, pixelate, trim
+from app.pipeline.background import BackgroundRemovalError
+from app.pipeline.pixelate import PixelateError
 from app.pipeline.trim import DegenerateBBoxError, EmptyImageError
 from app.services import prompt_builder
+from app.services.asset_urls import asset_url
 from app.services.gemini_client import GeminiClient, GeminiError, SafetyBlockedError
 from app.storage.project_store import ProjectStore
 
@@ -73,7 +76,7 @@ def animate(
         try:
             edited = gemini.edit(base, prompt)
             cut_by_index[index] = background.remove(edited, remover=remover)
-        except (GeminiError, SafetyBlockedError):
+        except (GeminiError, SafetyBlockedError, BackgroundRemovalError):
             failed.add(index)
 
     # Phase 2: shared-bbox alignment across the successful frames only, so the
@@ -90,9 +93,12 @@ def animate(
             failed.update(ok_indices)
             aligned = []
         for i, img in zip(ok_indices, aligned):
-            if project.style is Style.PIXEL:
-                img = pixelate.quantize(img)
-            aligned_by_index[i] = img
+            try:
+                if project.style is Style.PIXEL:
+                    img = pixelate.quantize(img)
+                aligned_by_index[i] = img
+            except PixelateError:
+                failed.add(i)
 
     # Phase 3: persist and build the frame manifest, preserving frame order.
     frames: list[Frame] = []
@@ -103,7 +109,7 @@ def animate(
             frames.append(
                 Frame(
                     index=index,
-                    url=f"/projects/{req.project_id}/{name}.png",
+                    url=asset_url(req.project_id, f"{name}.png"),
                     status=FrameStatus.OK,
                 )
             )
@@ -201,7 +207,14 @@ def regenerate_frame(
         if project.style is Style.PIXEL:
             sprite = pixelate.quantize(sprite)
         status = FrameStatus.OK
-    except (GeminiError, SafetyBlockedError, EmptyImageError, DegenerateBBoxError):
+    except (
+        GeminiError,
+        SafetyBlockedError,
+        BackgroundRemovalError,
+        PixelateError,
+        EmptyImageError,
+        DegenerateBBoxError,
+    ):
         status = FrameStatus.FAILED
 
     if status is FrameStatus.OK:
@@ -209,7 +222,7 @@ def regenerate_frame(
         store.save_image(req.project_id, name, sprite)
         frame = Frame(
             index=req.index,
-            url=f"/projects/{req.project_id}/{name}.png",
+            url=asset_url(req.project_id, f"{name}.png"),
             status=FrameStatus.OK,
         )
     else:
@@ -274,7 +287,7 @@ def delete_frame(
             new_frames.append(
                 Frame(
                     index=new_index,
-                    url=f"/projects/{req.project_id}/{name}.png",
+                    url=asset_url(req.project_id, f"{name}.png"),
                     status=FrameStatus.OK,
                 )
             )

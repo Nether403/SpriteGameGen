@@ -63,7 +63,8 @@ async def test_generate_returns_project_and_sprite_url(client, app_and_store):
     assert resp.status_code == 200
     body = resp.json()
     assert "project_id" in body and "sprite_url" in body
-    assert body["sprite_url"].endswith(".png")
+    assert body["sprite_url"].split("?", 1)[0].endswith(".png")
+    assert "v=" in body["sprite_url"]
 
     # gemini was asked with the right style
     assert fake.generate_calls[0]["style"] is Style.PIXEL
@@ -102,8 +103,9 @@ async def test_export_single_frame_returns_sheet_and_atlas(client, app_and_store
     resp = await client.post("/export", json={"project_id": pid, "format": "json"})
     assert resp.status_code == 200
     body = resp.json()
-    assert body["sheet_url"].endswith("sprite_sheet.png")
-    assert body["atlas_url"].endswith(".json")
+    assert body["sheet_url"].split("?", 1)[0].endswith("sprite_sheet.png")
+    assert body["atlas_url"].split("?", 1)[0].endswith(".json")
+    assert "v=" in body["sheet_url"] and "v=" in body["atlas_url"]
 
     # sheet + atlas were written to the project dir
     sheet = store.load_image(pid, "sprite_sheet")
@@ -115,7 +117,9 @@ async def test_export_xml_format(client, app_and_store):
     pid = (await client.post("/generate", data={"prompt": "p", "style": "pixel"})).json()["project_id"]
     resp = await client.post("/export", json={"project_id": pid, "format": "xml"})
     assert resp.status_code == 200
-    assert resp.json()["atlas_url"].endswith(".xml")
+    body = resp.json()
+    assert body["atlas_url"].split("?", 1)[0].endswith(".xml")
+    assert "v=" in body["atlas_url"]
 
 
 async def test_export_unknown_project_404(client):

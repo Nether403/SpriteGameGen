@@ -14,8 +14,11 @@ from PIL import Image, UnidentifiedImageError
 from app.deps import get_gemini_client, get_store
 from app.models import Frame, Project, Style
 from app.pipeline import background, pixelate, trim
+from app.pipeline.background import BackgroundRemovalError
+from app.pipeline.pixelate import PixelateError
 from app.pipeline.trim import EmptyImageError
 from app.services.gemini_client import GeminiClient, GeminiError, SafetyBlockedError
+from app.services.asset_urls import asset_url
 from app.storage.project_store import ProjectStore
 
 router = APIRouter()
@@ -65,7 +68,10 @@ async def generate(
 
     # --- deterministic post-processing ---
     remover = getattr(request.app.state, "remover", None)
-    cut = background.remove(raw_img, remover=remover)
+    try:
+        cut = background.remove(raw_img, remover=remover)
+    except BackgroundRemovalError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
     try:
         sprite = trim.autocrop(cut, padding=0)
     except EmptyImageError:
@@ -74,12 +80,15 @@ async def generate(
             detail="generated image was empty after background removal",
         )
     if style_enum is Style.PIXEL:
-        sprite = pixelate.quantize(sprite)
+        try:
+            sprite = pixelate.quantize(sprite)
+        except PixelateError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     # --- persist ---
     pid = store.create()
     store.save_image(pid, "sprite", sprite)
-    sprite_url = f"/projects/{pid}/sprite.png"
+    sprite_url = asset_url(pid, "sprite.png")
     project = Project(
         id=pid,
         prompt=prompt.strip(),

@@ -43,7 +43,12 @@ class GeminiTimeoutError(GeminiError):
 
 def _is_transient(exc: Exception) -> bool:
     text = str(exc).lower()
-    return any(marker in text for marker in _TRANSIENT_MARKERS)
+    return _is_timeout(exc) or any(marker in text for marker in _TRANSIENT_MARKERS)
+
+
+def _is_timeout(exc: Exception) -> bool:
+    text = f"{type(exc).__name__} {exc}".lower()
+    return isinstance(exc, TimeoutError) or "timeout" in text or "deadline" in text
 
 
 class GeminiClient:
@@ -80,7 +85,7 @@ class GeminiClient:
                     data=_to_png_bytes(reference), mime_type="image/png"
                 )
             )
-        config = types.GenerateContentConfig(response_modalities=["IMAGE"])
+        config = self._content_config(types)
         return self._call(self._model_generate, contents, config)
 
     def edit(self, base_img: Image.Image, prompt: str) -> Image.Image:
@@ -94,8 +99,14 @@ class GeminiClient:
             ),
             prompt,
         ]
-        config = types.GenerateContentConfig(response_modalities=["IMAGE"])
+        config = self._content_config(types)
         return self._call(self._model_edit, contents, config)
+
+    def _content_config(self, types: Any) -> Any:
+        return types.GenerateContentConfig(
+            response_modalities=["IMAGE"],
+            http_options=types.HttpOptions(timeout=max(1, round(self._timeout_s * 1000))),
+        )
 
     # --- internals ---
     def _call(self, model: str, contents: list[Any], config: Any) -> Image.Image:
@@ -110,6 +121,10 @@ class GeminiClient:
                 if _is_transient(exc) and attempt < self._max_retries - 1:
                     self._sleep(self._backoff_base * (2**attempt))
                     continue
+                if _is_timeout(exc) and attempt == self._max_retries - 1:
+                    raise GeminiTimeoutError(
+                        f"Gemini call timed out after {self._timeout_s:g}s"
+                    ) from exc
                 raise GeminiError(f"Gemini call failed: {exc}") from exc
             return self._parse_image(response)
 
@@ -188,4 +203,7 @@ def build_default_client() -> GeminiClient:
         client=sdk,
         model_generate=settings.gemini_model_generate,
         model_edit=settings.gemini_model_edit,
+        # Keep compatibility with lightweight settings fakes used by callers
+        # that predate the timeout setting; production Settings always exposes it.
+        timeout_s=getattr(settings, "gemini_timeout_seconds", 120.0),
     )
