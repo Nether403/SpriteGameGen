@@ -1,0 +1,70 @@
+# Next Roadmap Checklist
+
+## Phase 1: Project browser and resume
+
+- [ ] Task 1 — Add backward-compatible manifest metadata
+- [ ] Task 2 — Build resilient project summary and detail APIs
+- [ ] Task 3 — Add frontend project hydration
+- [ ] Task 4 — Add the project browser UI
+
+### Checkpoint 1
+
+- [ ] Backend suite passes
+- [ ] Frontend suite and production build pass
+- [ ] Old manifest opens successfully
+- [ ] Generate -> reload -> resume -> animate/export works
+
+## Phase 2A: Directional controls
+
+- [ ] Task 5 — Define camera/direction rules and pure prompts
+- [ ] Task 6 — Carry direction through backend generation and animation
+- [ ] Task 7 — Add direction contracts to frontend state and API
+- [ ] Task 8 — Add camera-aware direction controls
+
+### Checkpoint 2A
+
+- [ ] Side-scroller allows only left/right
+- [ ] Top-down/2.5D allows all eight directions
+- [ ] Stored direction survives reload and frame regeneration
+- [ ] Existing side-scroller/left behavior remains the default
+
+## Phase 2B: Prompt enhancer
+
+- [ ] Task 9 — Add a text-only Gemini enhancement primitive
+- [ ] Task 10 — Add enhancement API and prompt provenance
+- [ ] Task 11 — Add opt-in prompt preview and fallback UI
+
+### Checkpoint 2B
+
+- [ ] Raw, enhanced, edited-enhanced, revert, and failure fallback paths pass
+- [ ] No hidden enhancement call occurs
+- [ ] Prompt provenance survives resume
+- [ ] Full suites and build pass
+
+## Phase 3: Shared services and MCP
+
+- [ ] Task 12 — Define application result and error contracts
+- [ ] Task 13 — Extract enhance and generate workflows
+- [ ] Task 14 — Extract animation and frame-repair workflows
+- [ ] Task 15 — Extract export workflow
+- [ ] Task 16 — Add FastMCP server foundation and read tools
+- [ ] Task 17 — Add creative and export MCP tools
+- [ ] Task 18 — Document and smoke-test MCP installation
+
+### Checkpoint 3
+
+- [ ] HTTP and MCP both call `SpriteService`
+- [ ] MCP performs no HTTP calls and imports no route modules
+- [ ] In-process MCP tool scenario passes
+- [ ] Stdio initialization and tool discovery pass
+- [ ] Full backend/frontend/dependency validation passes
+
+## Final validation
+
+- [ ] `backend`: full pytest suite
+- [ ] `backend`: `pip check`
+- [ ] `frontend`: full Vitest suite
+- [ ] `frontend`: production build
+- [ ] `frontend`: production dependency audit
+- [ ] Repository: `git diff --check`
+- [ ] Manual smoke: browse/resume, direction, enhancer fallback, MCP export
