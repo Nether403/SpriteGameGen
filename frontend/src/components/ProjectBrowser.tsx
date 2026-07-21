@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   deleteProject,
   getProject,
+  isAbortError,
   listProjects,
   type ProjectSummary,
 } from "../api/client";
@@ -23,57 +24,88 @@ function statusText(project: ProjectSummary): string {
 }
 
 export function ProjectBrowser() {
-  const { projectId, catalogRevision, loadProject, reset } = useProjectStore();
+  const {
+    projectId,
+    catalogRevision,
+    loadProject,
+    reset,
+    mutation,
+    beginMutation,
+    endMutation,
+  } = useProjectStore();
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refreshNonce, setRefreshNonce] = useState(0);
+  const requestRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
-    let active = true;
+    const controller = new AbortController();
     setLoading(true);
     setError(null);
-    listProjects()
+    listProjects({ signal: controller.signal })
       .then((items) => {
-        if (active) setProjects(items);
+        setProjects(items);
       })
       .catch((reason) => {
-        if (active) setError(reason instanceof Error ? reason.message : "Could not load projects.");
+        if (!isAbortError(reason)) {
+          setError(reason instanceof Error ? reason.message : "Could not load projects.");
+        }
       })
       .finally(() => {
-        if (active) setLoading(false);
+        if (!controller.signal.aborted) setLoading(false);
       });
-    return () => {
-      active = false;
-    };
+    return () => controller.abort();
   }, [catalogRevision, refreshNonce]);
+
+  useEffect(() => () => requestRef.current?.abort(), []);
 
   async function onOpen(project: ProjectSummary) {
     if (!project.resume_available || busyId !== null) return;
+    const token = beginMutation("open", project.id);
+    if (token === null) return;
+    const expectedProjectId = projectId;
+    const controller = new AbortController();
+    requestRef.current = controller;
     setBusyId(project.id);
     setError(null);
     try {
-      loadProject(await getProject(project.id));
+      loadProject(
+        await getProject(project.id, { signal: controller.signal }),
+        expectedProjectId,
+      );
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Could not open project.");
+      if (!isAbortError(reason)) {
+        setError(reason instanceof Error ? reason.message : "Could not open project.");
+      }
     } finally {
+      requestRef.current = null;
       setBusyId(null);
+      endMutation(token);
     }
   }
 
   async function onDelete(project: ProjectSummary) {
     if (busyId !== null || !window.confirm(`Delete project “${project.prompt_preview || project.id}”?`)) return;
+    const token = beginMutation("delete", project.id);
+    if (token === null) return;
+    const controller = new AbortController();
+    requestRef.current = controller;
     setBusyId(project.id);
     setError(null);
     try {
-      await deleteProject(project.id);
+      await deleteProject(project.id, { signal: controller.signal });
       setProjects((items) => items.filter((item) => item.id !== project.id));
       if (project.id === projectId) reset();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Could not delete project.");
+      if (!isAbortError(reason)) {
+        setError(reason instanceof Error ? reason.message : "Could not delete project.");
+      }
     } finally {
+      requestRef.current = null;
       setBusyId(null);
+      endMutation(token);
     }
   }
 
@@ -88,7 +120,7 @@ export function ProjectBrowser() {
           type="button"
           className="secondary-button"
           onClick={() => setRefreshNonce((value) => value + 1)}
-          disabled={loading}
+          disabled={loading || mutation !== null}
         >
           Refresh
         </button>
@@ -140,7 +172,7 @@ export function ProjectBrowser() {
                     <button
                       type="button"
                       onClick={() => onOpen(project)}
-                      disabled={!project.resume_available || busyId !== null}
+                       disabled={!project.resume_available || busyId !== null || mutation !== null}
                     >
                       {busyId === project.id ? "Opening…" : project.resume_available ? "Open project" : "Cannot resume"}
                     </button>
@@ -149,7 +181,7 @@ export function ProjectBrowser() {
                       className="secondary-button"
                       aria-label={`Delete project ${project.id}`}
                       onClick={() => onDelete(project)}
-                      disabled={busyId !== null}
+                       disabled={busyId !== null || mutation !== null}
                     >
                       {busyId === project.id ? "Working…" : "Delete"}
                     </button>

@@ -2,21 +2,42 @@ import { useEffect, useState } from "react";
 
 import {
   listImageProviders,
+  isAbortError,
   type ImageProviderName,
   type ImageProviderOption,
 } from "../api/client";
 import { useProjectStore } from "../state/project";
 
-export function ProviderSelector({ id }: { id: string }) {
-  const { provider, setProvider } = useProjectStore();
+interface ProviderSelectorProps {
+  id: string;
+  value?: ImageProviderName;
+  onChange?: (provider: ImageProviderName) => void;
+  disabled?: boolean;
+}
+
+export function ProviderSelector({ id, value, onChange, disabled }: ProviderSelectorProps) {
+  const { provider: draftProvider, setProvider } = useProjectStore();
+  const provider = value ?? draftProvider;
+  const changeProvider = onChange ?? setProvider;
   const [options, setOptions] = useState<ImageProviderOption[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    listImageProviders()
+    const controller = new AbortController();
+    setLoading(true);
+    setError(null);
+    listImageProviders({ signal: controller.signal })
       .then(setOptions)
-      .catch(() => setError("Could not load image providers."));
-  }, []);
+      .catch((reason) => {
+        if (!isAbortError(reason)) setError("Could not load image providers.");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+    return () => controller.abort();
+  }, [attempt]);
 
   const selected = options.find((option) => option.id === provider);
 
@@ -26,8 +47,8 @@ export function ProviderSelector({ id }: { id: string }) {
       <select
         id={id}
         value={provider}
-        onChange={(event) => setProvider(event.target.value as ImageProviderName)}
-        disabled={options.length === 0}
+        onChange={(event) => changeProvider(event.target.value as ImageProviderName)}
+        disabled={disabled || loading || options.length === 0}
       >
         {options.map((option) => (
           <option key={option.id} value={option.id} disabled={!option.available}>
@@ -43,7 +64,15 @@ export function ProviderSelector({ id }: { id: string }) {
             : selected.unavailable_reason ?? selected.description}
         </p>
       )}
-      {error && <p className="error">{error}</p>}
+      {loading && <p className="hint" role="status">Loading image providers…</p>}
+      {error && (
+        <div className="metadata-error">
+          <p className="error" role="alert">{error}</p>
+          <button type="button" className="secondary-button" onClick={() => setAttempt((value) => value + 1)}>
+            Retry providers
+          </button>
+        </div>
+      )}
     </div>
   );
 }

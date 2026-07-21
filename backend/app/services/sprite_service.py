@@ -8,6 +8,8 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime
+import threading
+from collections.abc import Callable
 
 from PIL import Image
 from pydantic import BaseModel
@@ -23,6 +25,10 @@ from app.models import (
     ExportOptions,
     Project,
     ProjectHealth,
+    FrameErrorCode,
+    MAX_IMAGE_DIMENSION,
+    MAX_IMAGE_PIXELS,
+    MAX_PROMPT_LENGTH,
     PromptSource,
     Style,
     ViewMode,
@@ -37,8 +43,14 @@ from app.services.image_provider import (
     ImageProviderError,
     ImageSafetyBlockedError,
     PromptEnhancer,
+    provider_concurrency_slot,
 )
-from app.storage.project_store import ProjectRecord, ProjectStore
+from app.storage.project_store import (
+    ProjectBusyError,
+    ProjectConflictError,
+    ProjectRecord,
+    ProjectStore,
+)
 
 
 class SpriteServiceError(RuntimeError):
@@ -53,6 +65,10 @@ class ProjectUnavailableError(SpriteServiceError):
     pass
 
 
+class ProjectConflictServiceError(SpriteServiceError):
+    pass
+
+
 class ValidationServiceError(SpriteServiceError):
     pass
 
@@ -63,6 +79,59 @@ class SafetyServiceError(SpriteServiceError):
 
 class UpstreamServiceError(SpriteServiceError):
     pass
+
+
+class OperationCancelledError(SpriteServiceError):
+    """A cooperative cancellation stopped work before its persistence boundary."""
+
+
+class OperationTimeoutError(SpriteServiceError):
+    """A whole creative operation exceeded its configured deadline."""
+
+
+@dataclass(frozen=True)
+class OperationProgress:
+    progress: float
+    total: float
+    message: str
+
+
+class OperationControl:
+    """Thread-safe cancellation and monotonic progress for synchronous workflows."""
+
+    def __init__(
+        self,
+        *,
+        cancelled: threading.Event | None = None,
+        on_progress: Callable[[OperationProgress], None] | None = None,
+    ) -> None:
+        self._cancelled = cancelled or threading.Event()
+        self._on_progress = on_progress
+        self._progress = 0.0
+        self._progress_lock = threading.Lock()
+
+    @property
+    def is_cancelled(self) -> bool:
+        return self._cancelled.is_set()
+
+    def cancel(self) -> None:
+        self._cancelled.set()
+
+    def check_cancelled(self) -> None:
+        if self._cancelled.is_set():
+            raise OperationCancelledError(
+                "Operation cancelled; no project changes were committed."
+            )
+
+    def report(self, progress: float, message: str) -> None:
+        value = min(1.0, max(0.0, float(progress)))
+        with self._progress_lock:
+            value = max(value, self._progress)
+            self._progress = value
+        if self._on_progress is not None:
+            self._on_progress(
+                OperationProgress(progress=value, total=1.0, message=message)
+            )
 
 
 class ProjectSummaryData(BaseModel):
@@ -131,6 +200,15 @@ class ExportSheetResult(BaseModel):
     atlas_filename: str
 
 
+_FRAME_ERROR_MESSAGES: dict[FrameErrorCode, str] = {
+    FrameErrorCode.PROVIDER: "Image provider failed to generate this frame.",
+    FrameErrorCode.SAFETY: "Image provider blocked this frame for safety.",
+    FrameErrorCode.BACKGROUND: "Background removal failed for this frame.",
+    FrameErrorCode.EMPTY: "Frame contained no visible pixels after background removal.",
+    FrameErrorCode.PIXELATE: "Pixel-art conversion failed for this frame.",
+}
+
+
 class SpriteService:
     def __init__(
         self,
@@ -150,30 +228,66 @@ class SpriteService:
         self.provider_name = provider_name
         self.remover = remover
 
-    def enhance_prompt(self, request: EnhancePromptRequest) -> EnhancePromptResult:
+    def enhance_prompt(
+        self,
+        request: EnhancePromptRequest,
+        *,
+        control: OperationControl | None = None,
+    ) -> EnhancePromptResult:
+        operation = control or OperationControl()
         if self.prompt_enhancer is None:
             raise UpstreamServiceError("Prompt enhancer is not configured")
+        operation.check_cancelled()
+        operation.report(0.1, "Preparing prompt enhancement")
         try:
-            enhanced = self.prompt_enhancer.enhance_prompt(
-                request.prompt,
-                request.style,
-                request.view_mode,
-                request.direction,
-            )
+            with provider_concurrency_slot(
+                self.prompt_enhancer,
+                check_cancelled=operation.check_cancelled,
+            ):
+                enhanced = self.prompt_enhancer.enhance_prompt(
+                    request.prompt,
+                    request.style,
+                    request.view_mode,
+                    request.direction,
+                )
         except ImageSafetyBlockedError as exc:
             raise SafetyServiceError(str(exc)) from exc
         except ImageProviderError as exc:
             raise UpstreamServiceError(str(exc)) from exc
+        operation.check_cancelled()
+        operation.report(0.9, "Prompt enhancement received")
+        if len(enhanced) > MAX_PROMPT_LENGTH:
+            raise UpstreamServiceError(
+                "Prompt enhancer returned text above the maximum length"
+            )
+        operation.report(1.0, "Prompt enhancement complete")
         return EnhancePromptResult(
             original_prompt=request.prompt,
             enhanced_prompt=enhanced,
         )
 
-    def generate_sprite(self, request: GenerateSpriteInput) -> GenerateSpriteResult:
+    def generate_sprite(
+        self,
+        request: GenerateSpriteInput,
+        *,
+        control: OperationControl | None = None,
+    ) -> GenerateSpriteResult:
+        operation = control or OperationControl()
         if self.image_provider is None:
             raise UpstreamServiceError("Image provider is not configured")
         if not request.prompt.strip():
             raise ValidationServiceError("prompt must not be empty")
+        if len(request.prompt) > MAX_PROMPT_LENGTH:
+            raise ValidationServiceError(
+                f"prompt must be at most {MAX_PROMPT_LENGTH} characters"
+            )
+        if (
+            request.enhanced_prompt is not None
+            and len(request.enhanced_prompt) > MAX_PROMPT_LENGTH
+        ):
+            raise ValidationServiceError(
+                f"enhanced prompt must be at most {MAX_PROMPT_LENGTH} characters"
+            )
         from app.models import validate_direction
 
         try:
@@ -184,19 +298,29 @@ class SpriteService:
             request.enhanced_prompt.strip() if request.enhanced_prompt else None
         )
         effective_prompt = accepted_prompt or request.prompt.strip()
+        operation.check_cancelled()
+        operation.report(0.05, "Preparing sprite generation")
         try:
-            raw_image = self.image_provider.generate(
-                effective_prompt,
-                request.style,
-                reference=request.reference,
-                view_mode=request.view_mode,
-                direction=request.direction,
-            )
+            with provider_concurrency_slot(
+                self.image_provider,
+                check_cancelled=operation.check_cancelled,
+            ):
+                raw_image = self._validate_provider_image(
+                    self.image_provider.generate(
+                        effective_prompt,
+                        request.style,
+                        reference=request.reference,
+                        view_mode=request.view_mode,
+                        direction=request.direction,
+                    )
+                )
         except ImageSafetyBlockedError as exc:
             raise SafetyServiceError(str(exc)) from exc
         except ImageProviderError as exc:
             raise UpstreamServiceError(str(exc)) from exc
 
+        operation.check_cancelled()
+        operation.report(0.55, "Provider image received")
         try:
             cut = background.remove(raw_image, remover=self.remover)
             sprite = trim.autocrop(cut, padding=0)
@@ -211,8 +335,9 @@ class SpriteService:
         except PixelateError as exc:
             raise UpstreamServiceError(str(exc)) from exc
 
+        operation.check_cancelled()
+        operation.report(0.9, "Sprite processing complete")
         project_id = self.store.create()
-        self.store.save_image(project_id, "sprite", sprite)
         project = Project(
             id=project_id,
             prompt=request.prompt.strip(),
@@ -226,16 +351,36 @@ class SpriteService:
             direction=request.direction,
             frames=[Frame(index=0, url=None)],
         )
-        self.store.write_manifest(project_id, project)
+        try:
+            operation.report(0.95, "Committing sprite project")
+            operation.check_cancelled()
+            self.store.commit_project(
+                project_id,
+                project,
+                expected_revision=0,
+                images={"sprite": sprite},
+            )
+        except Exception:
+            self.store.delete_project(project_id)
+            raise
+        operation.report(1.0, "Sprite project complete")
         return GenerateSpriteResult(
             project_id=project_id,
             sprite_filename="sprite.png",
             project=project,
         )
 
-    def animate(self, request: AnimateRequest) -> AnimationResult:
+    def animate(
+        self,
+        request: AnimateRequest,
+        *,
+        control: OperationControl | None = None,
+    ) -> AnimationResult:
+        operation = control or OperationControl()
         if self.image_provider is None:
             raise UpstreamServiceError("Image provider is not configured")
+        operation.check_cancelled()
+        operation.report(0.03, "Preparing animation")
         try:
             preset = prompt_builder.get_preset(request.action)
         except KeyError as exc:
@@ -243,6 +388,8 @@ class SpriteService:
                 f"unknown action: {request.action!r}"
             ) from exc
         project = self._read_project(request.project_id)
+        original_revision = project.revision
+        old_frame_names = {f"frame_{frame.index}" for frame in project.frames}
         from app.models import validate_direction
 
         try:
@@ -271,26 +418,38 @@ class SpriteService:
                 total,
                 project.view_mode,
                 request.direction,
+                control=operation,
             )
 
         cut_by_index: dict[int, Image.Image] = {}
-        failed: set[int] = set()
+        failed: dict[int, tuple[FrameErrorCode, str]] = {}
+
+        def mark_failed(index: int, exc: Exception) -> None:
+            failed[index] = self._frame_failure(exc)
 
         def process_result(index: int, edited: Image.Image) -> None:
             try:
-                cut_by_index[index] = background.remove(
-                    edited, remover=self.remover
-                )
-            except BackgroundRemovalError:
-                failed.add(index)
+                cut = background.remove(edited, remover=self.remover)
+                trim.content_bbox(cut)
+                cut_by_index[index] = cut
+            except (BackgroundRemovalError, EmptyImageError) as exc:
+                mark_failed(index, exc)
 
         max_workers = max(1, int(getattr(self.image_provider, "max_concurrency", 1)))
         if max_workers == 1:
             for index in range(total):
+                operation.check_cancelled()
                 try:
                     process_result(index, generate_frame(index))
-                except (ImageProviderError, ImageSafetyBlockedError):
-                    failed.add(index)
+                except ImageSafetyBlockedError as exc:
+                    mark_failed(index, exc)
+                except ImageProviderError as exc:
+                    mark_failed(index, exc)
+                operation.check_cancelled()
+                operation.report(
+                    0.1 + 0.55 * ((index + 1) / total),
+                    f"Generated animation frame {index + 1}/{total}",
+                )
         else:
             # Only network-bound provider calls run concurrently. Background
             # removal and deterministic post-processing remain serial because
@@ -300,13 +459,25 @@ class SpriteService:
                     executor.submit(generate_frame, index): index
                     for index in range(total)
                 }
+                completed = 0
                 for future in as_completed(future_by_index):
+                    operation.check_cancelled()
                     index = future_by_index[future]
                     try:
                         process_result(index, future.result())
-                    except (ImageProviderError, ImageSafetyBlockedError):
-                        failed.add(index)
+                    except ImageSafetyBlockedError as exc:
+                        mark_failed(index, exc)
+                    except ImageProviderError as exc:
+                        mark_failed(index, exc)
+                    completed += 1
+                    operation.check_cancelled()
+                    operation.report(
+                        0.1 + 0.55 * (completed / total),
+                        f"Generated animation frame {completed}/{total}",
+                    )
 
+        operation.check_cancelled()
+        operation.report(0.7, "Processing animation frames")
         ok_indices = sorted(cut_by_index)
         aligned_by_index: dict[int, Image.Image] = {}
         if ok_indices:
@@ -314,30 +485,45 @@ class SpriteService:
             try:
                 box = trim.shared_bbox(ordered)
                 aligned = trim.align_to_bbox(ordered, box, padding=0)
-            except (EmptyImageError, DegenerateBBoxError):
-                failed.update(ok_indices)
+            except (EmptyImageError, DegenerateBBoxError) as exc:
+                for index in ok_indices:
+                    mark_failed(index, exc)
                 aligned = []
             for index, image in zip(ok_indices, aligned):
                 try:
                     if project.style is Style.PIXEL:
                         image = pixelate.quantize(image)
                     aligned_by_index[index] = image
-                except PixelateError:
-                    failed.add(index)
+                except PixelateError as exc:
+                    mark_failed(index, exc)
 
+        operation.check_cancelled()
+        operation.report(0.9, "Animation frame processing complete")
         frames: list[Frame] = []
         filenames: list[str | None] = []
+        images_to_save: dict[str, Image.Image] = {}
         for index in range(total):
             if index in aligned_by_index and index not in failed:
                 name = f"frame_{index}"
-                self.store.save_image(
-                    request.project_id, name, aligned_by_index[index]
-                )
+                images_to_save[name] = aligned_by_index[index]
                 frames.append(Frame(index=index, url=None, status=FrameStatus.OK))
                 filenames.append(f"{name}.png")
             else:
+                error_code, error_message = failed.get(
+                    index,
+                    (
+                        FrameErrorCode.PROVIDER,
+                        _FRAME_ERROR_MESSAGES[FrameErrorCode.PROVIDER],
+                    ),
+                )
                 frames.append(
-                    Frame(index=index, url=None, status=FrameStatus.FAILED)
+                    Frame(
+                        index=index,
+                        url=None,
+                        status=FrameStatus.FAILED,
+                        error_code=error_code,
+                        error_message=error_message,
+                    )
                 )
                 filenames.append(None)
 
@@ -346,7 +532,16 @@ class SpriteService:
         project.fps = request.fps
         project.direction = request.direction
         project.image_provider = self.provider_name
-        self.store.write_manifest(request.project_id, project)
+        operation.report(0.95, "Committing animation")
+        operation.check_cancelled()
+        self._commit_project(
+            request.project_id,
+            project,
+            expected_revision=original_revision,
+            images=images_to_save,
+            delete_images=old_frame_names - set(images_to_save),
+        )
+        operation.report(1.0, "Animation complete")
         return AnimationResult(
             project_id=request.project_id,
             action=request.action,
@@ -358,10 +553,20 @@ class SpriteService:
             project=project,
         )
 
-    def regenerate_frame(self, project_id: str, index: int) -> FrameMutationResult:
+    def regenerate_frame(
+        self,
+        project_id: str,
+        index: int,
+        *,
+        control: OperationControl | None = None,
+    ) -> FrameMutationResult:
+        operation = control or OperationControl()
         if self.image_provider is None:
             raise UpstreamServiceError("Image provider is not configured")
+        operation.check_cancelled()
+        operation.report(0.05, "Preparing frame regeneration")
         project = self._read_project(project_id)
+        original_revision = project.revision
         if project.action is None:
             raise ValidationServiceError("project has not been animated")
         total = len(project.frames)
@@ -389,6 +594,8 @@ class SpriteService:
             project.view_mode,
             project.direction,
         )
+        error_code: FrameErrorCode | None = None
+        error_message: str | None = None
         try:
             edited = self._edit_frame(
                 base,
@@ -398,7 +605,9 @@ class SpriteService:
                 total,
                 project.view_mode,
                 project.direction,
+                control=operation,
             )
+            operation.check_cancelled()
             cut = background.remove(edited, remover=self.remover)
             sprite = self._fit_to_size(cut, target_size)
             if project.style is Style.PIXEL:
@@ -411,18 +620,41 @@ class SpriteService:
             PixelateError,
             EmptyImageError,
             DegenerateBBoxError,
-        ):
+        ) as exc:
             status = FrameStatus.FAILED
+            error_code, error_message = self._frame_failure(exc)
 
+        operation.check_cancelled()
+        operation.report(0.85, "Frame processing complete")
         filename = None
+        images_to_save: dict[str, Image.Image] = {}
+        delete_images: set[str] = set()
         if status is FrameStatus.OK:
             name = f"frame_{index}"
-            self.store.save_image(project_id, name, sprite)
+            images_to_save[name] = sprite
             filename = f"{name}.png"
-        frame = Frame(index=index, url=None, status=status)
+        else:
+            delete_images.add(f"frame_{index}")
+        frame = Frame(
+            index=index,
+            url=None,
+            status=status,
+            error_code=error_code,
+            error_message=error_message,
+        )
         project.frames[index] = frame
         project.image_provider = self.provider_name
-        self.store.write_manifest(project_id, project)
+        operation.check_cancelled()
+        operation.report(0.95, "Committing regenerated frame")
+        operation.check_cancelled()
+        self._commit_project(
+            project_id,
+            project,
+            expected_revision=original_revision,
+            images=images_to_save,
+            delete_images=delete_images,
+        )
+        operation.report(1.0, "Frame regeneration complete")
         return FrameMutationResult(
             project_id=project_id,
             frame=frame,
@@ -439,6 +671,8 @@ class SpriteService:
         total: int,
         view_mode: ViewMode,
         direction: Direction,
+        *,
+        control: OperationControl | None = None,
     ) -> Image.Image:
         """Edit one frame, adding a structural guide where the model needs it."""
         guide = None
@@ -450,10 +684,21 @@ class SpriteService:
                 "its torso, hip, knee, ankle, foot, and arm positions, but never "
                 "copy its stick-figure style, colors, background, or any guide lines."
             )
-        return self.image_provider.edit(base, frame_prompt, pose_reference=guide)
+        operation = control or OperationControl()
+        operation.check_cancelled()
+        with provider_concurrency_slot(
+            self.image_provider,
+            check_cancelled=operation.check_cancelled,
+        ):
+            image = self.image_provider.edit(
+                base, frame_prompt, pose_reference=guide
+            )
+        operation.check_cancelled()
+        return self._validate_provider_image(image)
 
     def delete_frame(self, project_id: str, index: int) -> AnimationResult:
         project = self._read_project(project_id)
+        original_revision = project.revision
         if project.action is None or project.fps is None:
             raise ValidationServiceError("project has not been animated")
         if not 0 <= index < len(project.frames):
@@ -466,26 +711,39 @@ class SpriteService:
                 loaded[new_index] = self.store.load_image(
                     project_id, f"frame_{frame.index}"
                 )
-        for frame in project.frames:
-            self.store.delete_image(project_id, f"frame_{frame.index}")
-
         frames: list[Frame] = []
         filenames: list[str | None] = []
+        images_to_save: dict[str, Image.Image] = {}
         for new_index, old_frame in enumerate(survivors):
             if new_index in loaded:
                 name = f"frame_{new_index}"
-                self.store.save_image(project_id, name, loaded[new_index])
+                images_to_save[name] = loaded[new_index]
                 frames.append(
                     Frame(index=new_index, url=None, status=FrameStatus.OK)
                 )
                 filenames.append(f"{name}.png")
             else:
                 frames.append(
-                    Frame(index=new_index, url=None, status=FrameStatus.FAILED)
+                    Frame(
+                        index=new_index,
+                        url=None,
+                        status=FrameStatus.FAILED,
+                        error_code=old_frame.error_code,
+                        error_message=old_frame.error_message,
+                    )
                 )
                 filenames.append(None)
         project.frames = frames
-        self.store.write_manifest(project_id, project)
+        old_frame_names = {f"frame_{frame.index}" for frame in [*survivors, project.frames]}
+        # Include the deleted frame and any old high index that disappeared after reindexing.
+        old_frame_names.update(f"frame_{old_index}" for old_index in range(len(survivors) + 1))
+        self._commit_project(
+            project_id,
+            project,
+            expected_revision=original_revision,
+            images=images_to_save,
+            delete_images=old_frame_names - set(images_to_save),
+        )
         return AnimationResult(
             project_id=project_id,
             action=project.action,
@@ -498,9 +756,17 @@ class SpriteService:
         )
 
     def export_sheet(
-        self, project_id: str, options: ExportOptions
+        self,
+        project_id: str,
+        options: ExportOptions,
+        *,
+        control: OperationControl | None = None,
     ) -> ExportSheetResult:
+        operation = control or OperationControl()
+        operation.check_cancelled()
+        operation.report(0.05, "Preparing sprite-sheet export")
         project = self._read_project(project_id)
+        original_revision = project.revision
         failed_count = sum(
             frame.status is FrameStatus.FAILED for frame in project.frames
         )
@@ -516,22 +782,43 @@ class SpriteService:
         if not ok_frames:
             raise ValidationServiceError("project has no usable frames")
         images = []
-        for frame in sorted(ok_frames, key=lambda item: item.index):
+        ordered_frames = sorted(ok_frames, key=lambda item: item.index)
+        for position, frame in enumerate(ordered_frames, start=1):
+            operation.check_cancelled()
             name = (
                 "sprite"
-                if len(project.frames) == 1
+                if project.action is None
                 else f"frame_{frame.index}"
             )
             images.append(self.store.load_image(project_id, name))
-        sheet, layout = packer.pack(
-            images, cols=options.cols, padding=options.padding
-        )
+            operation.report(
+                0.1 + 0.4 * (position / len(ordered_frames)),
+                f"Loaded export frame {position}/{len(ordered_frames)}",
+            )
+        try:
+            sheet, layout = packer.pack(
+                images, cols=options.cols, padding=options.padding
+            )
+        except ValueError as exc:
+            raise ValidationServiceError(str(exc)) from exc
         atlas_text = atlas.write_atlas(
             layout, sheet.size, fmt=options.format.value
         )
-        self.store.save_image(project_id, "sprite_sheet", sheet)
+        operation.check_cancelled()
+        operation.report(0.9, "Sprite sheet packed")
         atlas_filename = f"sprite.{options.format.value}"
-        self.store.write_text(project_id, atlas_filename, atlas_text)
+        try:
+            operation.report(0.95, "Committing export assets")
+            operation.check_cancelled()
+            self.store.commit_assets(
+                project_id,
+                expected_revision=original_revision,
+                images={"sprite_sheet": sheet},
+                texts={atlas_filename: atlas_text},
+            )
+        except (ProjectConflictError, ProjectBusyError) as exc:
+            raise ProjectConflictServiceError(str(exc)) from exc
+        operation.report(1.0, "Sprite-sheet export complete")
         return ExportSheetResult(
             project_id=project_id,
             sheet_filename="sprite_sheet.png",
@@ -544,11 +831,74 @@ class SpriteService:
         except (FileNotFoundError, ValueError) as exc:
             raise ProjectNotFoundError("project not found") from exc
 
+    def _commit_project(
+        self,
+        project_id: str,
+        project: Project,
+        *,
+        expected_revision: int,
+        images: dict[str, Image.Image] | None = None,
+        delete_images: set[str] | None = None,
+    ) -> None:
+        try:
+            self.store.commit_project(
+                project_id,
+                project,
+                expected_revision=expected_revision,
+                images=images,
+                delete_images=delete_images,
+            )
+        except (ProjectConflictError, ProjectBusyError) as exc:
+            raise ProjectConflictServiceError(str(exc)) from exc
+
     @staticmethod
     def _resolve_frame_count(preset: dict, requested: int | None) -> int:
         if requested is None:
             return preset["default_frames"]
-        return max(preset["min_frames"], min(preset["max_frames"], requested))
+        if not preset["min_frames"] <= requested <= preset["max_frames"]:
+            raise ValidationServiceError(
+                f"frames for {preset['action']!r} must be between "
+                f"{preset['min_frames']} and {preset['max_frames']}"
+            )
+        return requested
+
+    @staticmethod
+    def _validate_provider_image(image: Image.Image) -> Image.Image:
+        try:
+            width, height = image.size
+        except (AttributeError, TypeError, ValueError) as exc:
+            raise ImageProviderError("image provider returned an invalid image") from exc
+        if (
+            width < 1
+            or height < 1
+            or width > MAX_IMAGE_DIMENSION
+            or height > MAX_IMAGE_DIMENSION
+            or width * height > MAX_IMAGE_PIXELS
+        ):
+            raise ImageProviderError(
+                "image provider returned image exceeds the decoded image limit"
+            )
+        try:
+            image.load()
+        except (OSError, SyntaxError, ValueError) as exc:
+            raise ImageProviderError("image provider returned an invalid image") from exc
+        return image
+
+    @staticmethod
+    def _frame_failure(exc: Exception) -> tuple[FrameErrorCode, str]:
+        if isinstance(exc, ImageSafetyBlockedError):
+            code = FrameErrorCode.SAFETY
+        elif isinstance(exc, ImageProviderError):
+            code = FrameErrorCode.PROVIDER
+        elif isinstance(exc, BackgroundRemovalError):
+            code = FrameErrorCode.BACKGROUND
+        elif isinstance(exc, (EmptyImageError, DegenerateBBoxError)):
+            code = FrameErrorCode.EMPTY
+        elif isinstance(exc, PixelateError):
+            code = FrameErrorCode.PIXELATE
+        else:
+            code = FrameErrorCode.PROVIDER
+        return code, _FRAME_ERROR_MESSAGES[code]
 
     @staticmethod
     def _fit_to_size(image: Image.Image, size: tuple[int, int]) -> Image.Image:

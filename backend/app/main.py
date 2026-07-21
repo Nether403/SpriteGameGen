@@ -8,11 +8,14 @@ from __future__ import annotations
 
 from typing import Callable
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from PIL import Image
 
+from app.config import ProviderReadiness, get_settings
+from app.deps import get_provider_availability, get_store
 from app.routes import animate, assets, export, generate, projects, prompts
+from app.storage.project_store import ProjectStore
 
 # Dev frontend origin (Vite).
 _CORS_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]
@@ -50,8 +53,26 @@ def create_app(
     def health():
         return {"status": "ok"}
 
+    @app.get("/ready")
+    def ready(
+        response: Response,
+        store: ProjectStore = Depends(get_store),
+        providers: dict[str, ProviderReadiness] = Depends(get_provider_availability),
+    ):
+        storage_ready = store.root.is_dir()
+        if not storage_ready:
+            response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+        return {
+            "status": "ready" if storage_ready else "not_ready",
+            "storage": {
+                "ready": storage_ready,
+                "projects_dir": str(store.root),
+            },
+            "providers": providers,
+        }
+
     return app
 
 
 # Module-level app for `uvicorn app.main:app`.
-app = create_app()
+app = create_app(max_upload_bytes=get_settings().max_upload_bytes)

@@ -13,27 +13,25 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from app.deps import get_azure_image_provider, get_gemini_client, get_store
+from app.deps import get_provider_registry, get_store
 from app.models import (
     AnimateRequest,
     ImageProviderName,
     ViewMode,
     directions_for,
 )
-from app.services.azure_image_provider import AzureImageProvider
 from app.services import prompt_builder
 from app.services.asset_urls import asset_url
-from app.services.gemini_client import GeminiClient
 from app.services.sprite_service import (
     AnimationResult,
+    ProjectConflictServiceError,
     ProjectNotFoundError,
     SpriteService,
     ValidationServiceError,
 )
 from app.services.provider_selection import (
+    ProviderRegistry,
     ProviderUnavailableError,
-    list_provider_options,
-    resolve_image_provider,
 )
 from app.storage.project_store import ProjectStore
 
@@ -58,9 +56,9 @@ def animation_options():
 
 @router.get("/image-providers")
 def image_providers(
-    azure: AzureImageProvider | None = Depends(get_azure_image_provider),
+    providers: ProviderRegistry = Depends(get_provider_registry),
 ):
-    return list_provider_options(azure_available=azure is not None)
+    return providers.options()
 
 
 def _animation_payload(result: AnimationResult) -> dict:
@@ -89,18 +87,17 @@ def _animation_payload(result: AnimationResult) -> dict:
 def animate(
     req: AnimateRequest,
     request: Request,
-    gemini: GeminiClient = Depends(get_gemini_client),
-    azure: AzureImageProvider | None = Depends(get_azure_image_provider),
+    providers: ProviderRegistry = Depends(get_provider_registry),
     store: ProjectStore = Depends(get_store),
 ):
     try:
         project = store.read_manifest(req.project_id)
         requested = req.provider or project.image_provider
-        resolved = resolve_image_provider(requested, gemini, azure)
+        resolved = providers.resolve(requested)
         result = SpriteService(
             store=store,
             image_provider=resolved.provider,
-            prompt_enhancer=gemini,
+            prompt_enhancer=providers.prompt_enhancer,
             provider_name=resolved.name,
             remover=getattr(request.app.state, "remover", None),
         ).animate(req)
@@ -108,6 +105,8 @@ def animate(
         raise HTTPException(status_code=404, detail=str(exc))
     except ValidationServiceError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
+    except ProjectConflictServiceError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
     except ProviderUnavailableError as exc:
         raise HTTPException(status_code=503, detail=str(exc))
     except FileNotFoundError:
@@ -131,18 +130,17 @@ class RegenerateFrameRequest(BaseModel):
 def regenerate_frame(
     req: RegenerateFrameRequest,
     request: Request,
-    gemini: GeminiClient = Depends(get_gemini_client),
-    azure: AzureImageProvider | None = Depends(get_azure_image_provider),
+    providers: ProviderRegistry = Depends(get_provider_registry),
     store: ProjectStore = Depends(get_store),
 ):
     try:
         project = store.read_manifest(req.project_id)
         requested = req.provider or project.image_provider
-        resolved = resolve_image_provider(requested, gemini, azure)
+        resolved = providers.resolve(requested)
         result = SpriteService(
             store=store,
             image_provider=resolved.provider,
-            prompt_enhancer=gemini,
+            prompt_enhancer=providers.prompt_enhancer,
             provider_name=resolved.name,
             remover=getattr(request.app.state, "remover", None),
         ).regenerate_frame(req.project_id, req.index)
@@ -150,6 +148,8 @@ def regenerate_frame(
         raise HTTPException(status_code=404, detail=str(exc))
     except ValidationServiceError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
+    except ProjectConflictServiceError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
     except ProviderUnavailableError as exc:
         raise HTTPException(status_code=503, detail=str(exc))
     except FileNotFoundError:
@@ -186,4 +186,6 @@ def delete_frame(
         raise HTTPException(status_code=404, detail=str(exc))
     except ValidationServiceError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
+    except ProjectConflictServiceError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
     return _animation_payload(result)

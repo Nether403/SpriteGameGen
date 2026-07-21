@@ -10,6 +10,16 @@ from enum import Enum
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+MAX_PROMPT_LENGTH = 2000
+MAX_EXPORT_PADDING = 256
+MAX_EXPORT_COLS = 64
+MAX_IMAGE_DIMENSION = 8192
+MAX_IMAGE_PIXELS = 16 * 1024 * 1024
+MAX_SHEET_DIMENSION = 8192
+MAX_SHEET_PIXELS = 32 * 1024 * 1024
+MAX_SHEET_BYTES = 64 * 1024 * 1024
+MAX_FRAME_ERROR_MESSAGE_LENGTH = 200
+
 
 class Style(str, Enum):
     """Art style — differs mainly in one post-processing step (quantize)."""
@@ -78,6 +88,14 @@ class FrameStatus(str, Enum):
     FAILED = "failed"
 
 
+class FrameErrorCode(str, Enum):
+    PROVIDER = "provider"
+    SAFETY = "safety"
+    BACKGROUND = "background"
+    EMPTY = "empty"
+    PIXELATE = "pixelate"
+
+
 class ProjectHealth(str, Enum):
     READY = "ready"
     INCOMPLETE = "incomplete"
@@ -95,6 +113,10 @@ class Frame(BaseModel):
     index: int = Field(ge=0)
     url: str | None = None
     status: FrameStatus = FrameStatus.OK
+    error_code: FrameErrorCode | None = None
+    error_message: str | None = Field(
+        default=None, max_length=MAX_FRAME_ERROR_MESSAGE_LENGTH
+    )
 
 
 class Project(BaseModel):
@@ -105,14 +127,15 @@ class Project(BaseModel):
     """
 
     id: str
-    prompt: str
-    enhanced_prompt: str | None = None
+    prompt: str = Field(min_length=1, max_length=MAX_PROMPT_LENGTH)
+    enhanced_prompt: str | None = Field(default=None, max_length=MAX_PROMPT_LENGTH)
     prompt_source: PromptSource = PromptSource.RAW
     image_provider: ImageProviderName = ImageProviderName.GEMINI
     style: Style
     view_mode: ViewMode = ViewMode.SIDE_SCROLLER
     direction: Direction = Direction.LEFT
     schema_version: int = Field(default=1, ge=1)
+    revision: int = Field(default=0, ge=0)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     frames: list[Frame] = Field(default_factory=list)
@@ -159,8 +182,10 @@ class ExportOptions(BaseModel):
     """Options for packing frames into a sheet + atlas."""
 
     format: ExportFormat = ExportFormat.JSON
-    padding: int = Field(default=0, ge=0)
-    cols: int | None = Field(default=None, ge=1)  # None => auto near-square grid
+    padding: int = Field(default=0, ge=0, le=MAX_EXPORT_PADDING)
+    cols: int | None = Field(
+        default=None, ge=1, le=MAX_EXPORT_COLS
+    )  # None => auto near-square grid
 
 
 class AnimateRequest(BaseModel):
@@ -181,7 +206,7 @@ class AnimateRequest(BaseModel):
 
 
 class EnhancePromptRequest(BaseModel):
-    prompt: str = Field(min_length=1, max_length=1000)
+    prompt: str = Field(min_length=1, max_length=MAX_PROMPT_LENGTH)
     style: Style
     view_mode: ViewMode = ViewMode.SIDE_SCROLLER
     direction: Direction = Direction.LEFT
@@ -201,5 +226,5 @@ class EnhancePromptRequest(BaseModel):
 
 
 class EnhancePromptResult(BaseModel):
-    original_prompt: str
-    enhanced_prompt: str
+    original_prompt: str = Field(max_length=MAX_PROMPT_LENGTH)
+    enhanced_prompt: str = Field(max_length=MAX_PROMPT_LENGTH)

@@ -6,7 +6,7 @@ from PIL import Image
 
 from app.deps import get_azure_image_provider, get_gemini_client, get_store
 from app.main import create_app
-from app.models import Direction, Style, ViewMode
+from app.models import Direction, FrameErrorCode, Style, ViewMode
 from app.pipeline.pixelate import PixelateError
 from app.services.gemini_client import GeminiError
 from app.storage.project_store import ProjectStore
@@ -180,7 +180,7 @@ async def test_animate_uses_preset_default_frame_count(client, app_and_store):
     assert store.load_image(pid, "frame_0").mode == "RGBA"
 
 
-async def test_animate_clamps_requested_frames_to_preset_window(client, app_and_store):
+async def test_animate_accepts_requested_frames_inside_preset_window(client, app_and_store):
     pid = await _generate(client)
     # idle max is 4; request 10 -> clamps to 4
     resp = await client.post(
@@ -189,6 +189,23 @@ async def test_animate_clamps_requested_frames_to_preset_window(client, app_and_
     assert resp.status_code == 200
     assert len(resp.json()["frames"]) == 4
     assert resp.json()["fps"] == 12
+
+
+@pytest.mark.parametrize(
+    ("action", "frames"), [("idle", 5), ("walk", 3), ("attack", 7)]
+)
+async def test_animate_rejects_requested_frames_outside_preset_window(
+    client, app_and_store, action, frames
+):
+    _, _, fake = app_and_store
+    pid = await _generate(client)
+
+    resp = await client.post(
+        "/animate", json={"project_id": pid, "action": action, "frames": frames}
+    )
+
+    assert resp.status_code == 422
+    assert fake.edit_prompts == []
 
 
 async def test_animate_partial_failure_marks_frame_failed(tmp_path):
@@ -207,6 +224,8 @@ async def test_animate_partial_failure_marks_frame_failed(tmp_path):
     assert len(failed) == 1
     assert failed[0]["index"] == 2
     assert failed[0]["url"] is None
+    assert failed[0]["error_code"] == FrameErrorCode.PROVIDER.value
+    assert "simulated" not in failed[0]["error_message"]
 
 
 async def test_animate_background_failure_isolated_to_one_frame(tmp_path):
@@ -229,6 +248,7 @@ async def test_animate_background_failure_isolated_to_one_frame(tmp_path):
     frames = resp.json()["frames"]
     assert [f["status"] for f in frames].count("failed") == 1
     assert frames[0]["status"] == "failed"
+    assert frames[0]["error_code"] == FrameErrorCode.BACKGROUND.value
 
 
 async def test_animate_pixelate_failure_isolated_to_one_frame(tmp_path, monkeypatch):
@@ -256,8 +276,62 @@ async def test_animate_pixelate_failure_isolated_to_one_frame(tmp_path, monkeypa
     frames = resp.json()["frames"]
     assert [f["status"] for f in frames].count("failed") == 1
     assert frames[1]["status"] == "failed"
+    assert frames[1]["error_code"] == FrameErrorCode.PIXELATE.value
     # other frames still succeeded
     assert sum(1 for f in frames if f["status"] == "ok") == 3
+
+
+async def test_animate_marks_fully_transparent_frame_empty_without_failing_siblings(
+    tmp_path
+):
+    animation_calls = 0
+
+    def one_empty_remover(img):
+        nonlocal animation_calls
+        if img.size == (64, 64):
+            animation_calls += 1
+            if animation_calls == 2:
+                return Image.new("RGBA", img.size, (0, 0, 0, 0))
+        return _fake_remover(img)
+
+    app, store, _ = _make(tmp_path, remover=one_empty_remover)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        pid = await _generate(c)
+        resp = await c.post(
+            "/animate", json={"project_id": pid, "action": "walk", "frames": 4}
+        )
+
+    assert resp.status_code == 200
+    frames = resp.json()["frames"]
+    assert [frame["status"] for frame in frames] == ["failed", "ok", "ok", "ok"]
+    assert frames[0]["error_code"] == FrameErrorCode.EMPTY.value
+    assert not (store.root / pid / "frame_0.png").exists()
+
+
+async def test_animate_safety_failure_has_safe_category(tmp_path):
+    from app.services.gemini_client import SafetyBlockedError
+
+    app, _, fake = _make(tmp_path)
+
+    def blocked_edit(*args, **kwargs):
+        raise SafetyBlockedError("raw provider moderation payload: secret")
+
+    fake.edit = blocked_edit
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as c:
+        pid = await _generate(c)
+        resp = await c.post(
+            "/animate", json={"project_id": pid, "action": "walk", "frames": 4}
+        )
+
+    assert resp.status_code == 200
+    assert all(
+        frame["error_code"] == FrameErrorCode.SAFETY.value
+        and "secret" not in frame["error_message"]
+        for frame in resp.json()["frames"]
+    )
 
 
 async def test_animate_frames_share_identical_size_antijitter(client, app_and_store):

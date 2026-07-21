@@ -1,4 +1,5 @@
 """Framework-neutral SpriteService behavior."""
+from concurrent.futures import ThreadPoolExecutor
 import threading
 import time
 
@@ -10,18 +11,27 @@ from app.models import (
     AnimateRequest,
     EnhancePromptRequest,
     Frame,
+    FrameErrorCode,
     FrameStatus,
     ExportOptions,
     Project,
     ProjectHealth,
+    MAX_IMAGE_DIMENSION,
+    MAX_IMAGE_PIXELS,
+    MAX_PROMPT_LENGTH,
     Style,
     ViewMode,
 )
 from app.services.sprite_service import (
     GenerateSpriteInput,
+    OperationCancelledError,
+    OperationControl,
+    ProjectConflictServiceError,
     ProjectNotFoundError,
     ProjectUnavailableError,
     SpriteService,
+    UpstreamServiceError,
+    ValidationServiceError,
 )
 from app.storage.project_store import ProjectStore
 
@@ -104,6 +114,17 @@ def test_enhance_prompt_is_a_framework_neutral_preview(tmp_path):
     assert list(tmp_path.iterdir()) == []
 
 
+def test_enhance_prompt_rejects_overlong_provider_output(tmp_path):
+    class Gemini:
+        def enhance_prompt(self, *args):
+            return "x" * (MAX_PROMPT_LENGTH + 1)
+
+    with pytest.raises(UpstreamServiceError, match="maximum length"):
+        SpriteService(store=ProjectStore(tmp_path), gemini=Gemini()).enhance_prompt(
+            EnhancePromptRequest(prompt="a knight", style=Style.PIXEL)
+        )
+
+
 def test_generate_sprite_processes_and_persists_accepted_prompt(tmp_path):
     class Gemini:
         def __init__(self):
@@ -134,6 +155,39 @@ def test_generate_sprite_processes_and_persists_accepted_prompt(tmp_path):
     assert result.project.prompt == "a knight"
     assert result.project.prompt_source.value == "enhanced"
     assert store.load_image(result.project_id, "sprite").size == (8, 8)
+
+
+@pytest.mark.parametrize("field", ["prompt", "enhanced_prompt"])
+def test_generate_sprite_bounds_raw_and_enhanced_prompts(tmp_path, field):
+    values = {"prompt": "a knight", "style": Style.HIRES}
+    values[field] = "x" * (MAX_PROMPT_LENGTH + 1)
+
+    with pytest.raises(ValidationServiceError, match="at most"):
+        SpriteService(store=ProjectStore(tmp_path), image_provider=object()).generate_sprite(
+            GenerateSpriteInput(**values)
+        )
+
+
+def test_generate_sprite_rejects_provider_image_over_pixel_budget(tmp_path):
+    class OversizedImage:
+        size = (MAX_IMAGE_DIMENSION // 2 + 1, MAX_IMAGE_DIMENSION // 2 + 1)
+        width, height = size
+
+        def load(self):
+            raise AssertionError("oversized provider image must not be decoded")
+
+    class Provider:
+        def generate(self, *args, **kwargs):
+            return OversizedImage()
+
+    assert OversizedImage.width <= MAX_IMAGE_DIMENSION
+    assert OversizedImage.height <= MAX_IMAGE_DIMENSION
+    assert OversizedImage.width * OversizedImage.height > MAX_IMAGE_PIXELS
+
+    with pytest.raises(UpstreamServiceError, match="image exceeds"):
+        SpriteService(
+            store=ProjectStore(tmp_path), image_provider=Provider()
+        ).generate_sprite(GenerateSpriteInput(prompt="a knight", style=Style.HIRES))
 
 
 def test_animation_and_export_return_asset_names_not_urls(tmp_path):
@@ -176,6 +230,37 @@ def test_animation_and_export_return_asset_names_not_urls(tmp_path):
     assert store.asset_path(pid, exported.sheet_filename).is_file()
 
 
+@pytest.mark.parametrize(
+    ("action", "expected_color"),
+    [(None, "red"), ("walk", "blue")],
+)
+def test_single_frame_export_uses_static_sprite_or_animated_frame(
+    tmp_path, action, expected_color
+):
+    store = ProjectStore(tmp_path)
+    pid = store.create()
+    store.save_image(pid, "sprite", Image.new("RGBA", (2, 2), "red"))
+    if action is not None:
+        store.save_image(pid, "frame_0", Image.new("RGBA", (2, 2), "blue"))
+    store.write_manifest(
+        pid,
+        Project(
+            id=pid,
+            prompt="a knight",
+            style=Style.HIRES,
+            frames=[Frame(index=0)],
+            action=action,
+            fps=8 if action else None,
+        ),
+    )
+
+    SpriteService(store=store).export_sheet(pid, ExportOptions())
+
+    assert store.load_image(pid, "sprite_sheet").getpixel((0, 0)) == Image.new(
+        "RGBA", (1, 1), expected_color
+    ).getpixel((0, 0))
+
+
 def test_animation_honors_provider_bounded_concurrency(tmp_path):
     class ConcurrentProvider:
         max_concurrency = 3
@@ -208,3 +293,148 @@ def test_animation_honors_provider_bounded_concurrency(tmp_path):
 
     assert provider.peak == 3
     assert all(frame.status is FrameStatus.OK for frame in result.frames)
+
+
+def test_animation_rejects_commit_when_project_changes_during_provider_work(tmp_path):
+    store = ProjectStore(tmp_path)
+    pid = _project(store)
+
+    class RacingProvider:
+        max_concurrency = 1
+
+        def __init__(self):
+            self.changed = False
+
+        def edit(self, base, prompt, *, pose_reference=None):
+            if not self.changed:
+                self.changed = True
+                other_store = ProjectStore(tmp_path)
+                changed = other_store.read_manifest(pid)
+                original_revision = changed.revision
+                changed.prompt = "updated elsewhere"
+                other_store.write_manifest(
+                    pid, changed, expected_revision=original_revision
+                )
+            return Image.new("RGBA", (8, 8), "red")
+
+    with pytest.raises(ProjectConflictServiceError):
+        SpriteService(
+            store=store,
+            image_provider=RacingProvider(),
+            remover=lambda image: image,
+        ).animate(AnimateRequest(project_id=pid, action="walk", frames=4))
+
+    assert store.read_manifest(pid).prompt == "updated elsewhere"
+    assert not list((tmp_path / pid).glob("frame_*.png"))
+
+
+def test_generate_cancellation_after_provider_call_never_commits(tmp_path):
+    provider_started = threading.Event()
+    provider_release = threading.Event()
+
+    class SlowProvider:
+        max_concurrency = 1
+
+        def generate(self, *args, **kwargs):
+            provider_started.set()
+            assert provider_release.wait(timeout=2)
+            return Image.new("RGBA", (8, 8), "red")
+
+    store = ProjectStore(tmp_path)
+    control = OperationControl()
+    service = SpriteService(
+        store=store,
+        image_provider=SlowProvider(),
+        remover=lambda image: image,
+    )
+    errors = []
+
+    def run() -> None:
+        try:
+            service.generate_sprite(
+                GenerateSpriteInput(prompt="a knight", style=Style.HIRES),
+                control=control,
+            )
+        except Exception as exc:  # captured for the calling test thread
+            errors.append(exc)
+
+    worker = threading.Thread(target=run)
+    worker.start()
+    assert provider_started.wait(timeout=1)
+    control.cancel()
+    provider_release.set()
+    worker.join(timeout=2)
+
+    assert not worker.is_alive()
+    assert len(errors) == 1
+    assert isinstance(errors[0], OperationCancelledError)
+    assert list(store.root.iterdir()) == []
+
+
+def test_animation_cancellation_at_commit_boundary_preserves_revision(tmp_path):
+    class Provider:
+        max_concurrency = 1
+
+        def edit(self, *args, **kwargs):
+            return Image.new("RGBA", (8, 8), "red")
+
+    store = ProjectStore(tmp_path)
+    pid = _project(store)
+    original = store.read_manifest(pid)
+    control = None
+
+    def cancel_before_commit(progress) -> None:
+        if progress.message == "Committing animation":
+            control.cancel()
+
+    control = OperationControl(on_progress=cancel_before_commit)
+
+    with pytest.raises(OperationCancelledError):
+        SpriteService(
+            store=store,
+            image_provider=Provider(),
+            remover=lambda image: image,
+        ).animate(
+            AnimateRequest(project_id=pid, action="walk", frames=4),
+            control=control,
+        )
+
+    persisted = store.read_manifest(pid)
+    assert persisted.revision == original.revision
+    assert persisted.action is None
+    assert not list((tmp_path / pid).glob("frame_*.png"))
+
+
+def test_provider_concurrency_is_shared_across_independent_services(tmp_path):
+    class SharedProvider:
+        max_concurrency = 2
+
+        def __init__(self):
+            self.active = 0
+            self.peak = 0
+            self.lock = threading.Lock()
+
+        def generate(self, *args, **kwargs):
+            with self.lock:
+                self.active += 1
+                self.peak = max(self.peak, self.active)
+            time.sleep(0.04)
+            with self.lock:
+                self.active -= 1
+            return Image.new("RGBA", (8, 8), "red")
+
+    provider = SharedProvider()
+
+    def generate(index: int) -> None:
+        SpriteService(
+            store=ProjectStore(tmp_path / str(index)),
+            image_provider=provider,
+            remover=lambda image: image,
+        ).generate_sprite(
+            GenerateSpriteInput(prompt=f"knight {index}", style=Style.HIRES)
+        )
+
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        list(executor.map(generate, range(4)))
+
+    assert provider.peak == 2

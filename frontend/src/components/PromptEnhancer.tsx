@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
-import { enhancePrompt } from "../api/client";
+import { enhancePrompt, isAbortError } from "../api/client";
 import { useProjectStore } from "../state/project";
 
 export function PromptEnhancer() {
@@ -18,30 +18,42 @@ export function PromptEnhancer() {
   const [enabled, setEnabled] = useState(promptSource === "enhanced");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const requestRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     if (promptSource === "enhanced" && enhancedPrompt) setEnabled(true);
   }, [enhancedPrompt, promptSource]);
 
+  useEffect(() => () => requestRef.current?.abort(), []);
+
   async function onPreview() {
     if (!prompt.trim()) return;
+    requestRef.current?.abort();
+    const controller = new AbortController();
+    requestRef.current = controller;
     setBusy(true);
     setError(null);
     try {
-      const result = await enhancePrompt({
-        prompt: prompt.trim(),
-        style,
-        view_mode: viewMode,
-        direction,
-      });
+      const result = await enhancePrompt(
+        {
+          prompt: prompt.trim(),
+          style,
+          view_mode: viewMode,
+          direction,
+        },
+        { signal: controller.signal },
+      );
       setEnhancedPrompt(result.enhanced_prompt);
     } catch (reason) {
-      useRawPrompt();
-      setError(
-        reason instanceof Error ? reason.message : "Prompt enhancement failed.",
-      );
+      if (!isAbortError(reason)) {
+        useRawPrompt();
+        setError(
+          reason instanceof Error ? reason.message : "Prompt enhancement failed.",
+        );
+      }
     } finally {
-      setBusy(false);
+      if (!controller.signal.aborted) setBusy(false);
+      if (requestRef.current === controller) requestRef.current = null;
     }
   }
 

@@ -43,6 +43,7 @@ def test_xml_is_valid_and_has_all_frames():
     out = write_atlas(LAYOUT, SHEET_SIZE, fmt="xml")
     root = ET.fromstring(out)
     assert root.tag == "TextureAtlas"
+    assert root.attrib["imagePath"] == "sprite_sheet.png"
     sub = root.findall("SubTexture")
     assert len(sub) == 4
     assert sub[1].attrib["x"] == "10"

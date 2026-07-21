@@ -1,5 +1,54 @@
 {
-  "generated_at": "2026-07-21T11:39:20.702828+00:00",
-  "nodes": {},
+  "generated_at": "2026-07-21T20:13:56.222063+00:00",
+  "nodes": {
+    "graphify_out_memory_query_20260721_114540_assess_loading_and_per_frame_progress__partial_fai_animatepanel": {
+      "code_fingerprint": "6d5ce32f268c5b08c765f0d326edf014a4e26c80690bd43d685b5d87b29f52bc",
+      "label": "AnimatePanel",
+      "last": "2026-07-21T11:45:40.178039+00:00",
+      "provenance": [
+        {
+          "date": "2026-07-21T11:45:40.178039+00:00",
+          "outcome": "useful",
+          "q": "Assess loading and per-frame progress, partial-failure summaries, an opt-in prompt enhancer, directional animation controls, and a thin MCP server for SpriteGameGen."
+        }
+      ],
+      "score": 0.991877975,
+      "source_file": "graphify-out/memory/query_20260721_114540_assess_loading_and_per_frame_progress__partial_fai.md",
+      "status": "tentative",
+      "uses": 1
+    },
+    "graphify_out_memory_query_20260721_114540_assess_loading_and_per_frame_progress__partial_fai_export": {
+      "code_fingerprint": "6d5ce32f268c5b08c765f0d326edf014a4e26c80690bd43d685b5d87b29f52bc",
+      "label": "export",
+      "last": "2026-07-21T11:45:40.178039+00:00",
+      "provenance": [
+        {
+          "date": "2026-07-21T11:45:40.178039+00:00",
+          "outcome": "useful",
+          "q": "Assess loading and per-frame progress, partial-failure summaries, an opt-in prompt enhancer, directional animation controls, and a thin MCP server for SpriteGameGen."
+        }
+      ],
+      "score": 0.991877975,
+      "source_file": "graphify-out/memory/query_20260721_114540_assess_loading_and_per_frame_progress__partial_fai.md",
+      "status": "tentative",
+      "uses": 1
+    },
+    "graphify_out_memory_query_20260721_114540_assess_loading_and_per_frame_progress__partial_fai_frame_prompt": {
+      "code_fingerprint": "6d5ce32f268c5b08c765f0d326edf014a4e26c80690bd43d685b5d87b29f52bc",
+      "label": "frame_prompt",
+      "last": "2026-07-21T11:45:40.178039+00:00",
+      "provenance": [
+        {
+          "date": "2026-07-21T11:45:40.178039+00:00",
+          "outcome": "useful",
+          "q": "Assess loading and per-frame progress, partial-failure summaries, an opt-in prompt enhancer, directional animation controls, and a thin MCP server for SpriteGameGen."
+        }
+      ],
+      "score": 0.991877975,
+      "source_file": "graphify-out/memory/query_20260721_114540_assess_loading_and_per_frame_progress__partial_fai.md",
+      "status": "tentative",
+      "uses": 1
+    }
+  },
   "version": 1
 }

@@ -21,12 +21,13 @@ import {
 function mockFetch(response: {
   ok: boolean;
   status?: number;
+  statusText?: string;
   json?: () => Promise<unknown>;
 }) {
   const fn = vi.fn().mockResolvedValue({
     ok: response.ok,
     status: response.status ?? (response.ok ? 200 : 400),
-    statusText: "err",
+    statusText: response.statusText ?? "err",
     json: response.json ?? (async () => ({})),
   });
   vi.stubGlobal("fetch", fn);
@@ -116,6 +117,31 @@ describe("generate", () => {
       name: "ApiError",
       status: 422,
       message: "prompt must not be empty",
+    });
+  });
+
+  it("passes an abort signal to fetch", async () => {
+    const fetchMock = mockFetch({
+      ok: true,
+      json: async () => ({ project_id: "p1", sprite_url: "sprite" }),
+    });
+    const controller = new AbortController();
+
+    await generate("a knight", "pixel", null, { signal: controller.signal });
+
+    expect(fetchMock.mock.calls[0][1].signal).toBe(controller.signal);
+  });
+
+  it("uses a useful fallback when an error has no detail or status text", async () => {
+    mockFetch({
+      ok: false,
+      status: 503,
+      statusText: "",
+      json: async () => ({}),
+    });
+
+    await expect(generate("a knight", "pixel")).rejects.toMatchObject({
+      message: "Request failed (503)",
     });
   });
 });
@@ -286,6 +312,17 @@ describe("projects", () => {
 
     expect(project.id).toBe("p1");
     expect(fetchMock.mock.calls[0][0]).toBe("/projects/p1");
+  });
+
+  it("encodes project ids used in paths", async () => {
+    const fetchMock = mockFetch({
+      ok: true,
+      json: async () => ({ id: "folder/project one", frames: [] }),
+    });
+
+    await getProject("folder/project one");
+
+    expect(fetchMock.mock.calls[0][0]).toBe("/projects/folder%2Fproject%20one");
   });
 
   it("deletes via DELETE /projects/:id", async () => {

@@ -41,7 +41,9 @@ def _json_atlas(layout: Layout, sheet_size: tuple[int, int]) -> str:
 def _xml_atlas(layout: Layout, sheet_size: tuple[int, int]) -> str:
     w, h = sheet_size
     lines = ['<?xml version="1.0" encoding="UTF-8"?>']
-    lines.append(f'<TextureAtlas imagePath="sprite.png" width="{w}" height="{h}">')
+    lines.append(
+        f'<TextureAtlas imagePath="sprite_sheet.png" width="{w}" height="{h}">'
+    )
     for item in sorted(layout, key=lambda it: it["index"]):
         name = quoteattr(f"frame_{item['index']}.png")
         lines.append(

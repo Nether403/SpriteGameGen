@@ -1,5 +1,10 @@
 """Stage 1 route tests: /generate, /export, projects list/delete (fake Gemini)."""
 import io
+import struct
+import asyncio
+import threading
+import time
+import zlib
 
 import numpy as np
 import pytest
@@ -8,7 +13,15 @@ from PIL import Image
 
 from app.deps import get_azure_image_provider, get_gemini_client, get_store
 from app.main import create_app
-from app.models import Direction, Style, ViewMode
+from app.models import (
+    Direction,
+    MAX_EXPORT_COLS,
+    MAX_EXPORT_PADDING,
+    MAX_IMAGE_DIMENSION,
+    MAX_PROMPT_LENGTH,
+    Style,
+    ViewMode,
+)
 from app.storage.project_store import ProjectStore
 
 
@@ -46,6 +59,19 @@ def _fake_remover(img: Image.Image) -> Image.Image:
     green = (arr[:, :, 0] == 0) & (arr[:, :, 1] == 255) & (arr[:, :, 2] == 0)
     arr[green, 3] = 0
     return Image.fromarray(arr, "RGBA")
+
+
+def _png_with_dimensions(width: int, height: int) -> bytes:
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        return (
+            struct.pack(">I", len(data))
+            + kind
+            + data
+            + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+        )
+
+    header = struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0)
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header) + chunk(b"IEND", b"")
 
 
 @pytest.fixture
@@ -101,6 +127,22 @@ async def test_auto_provider_prefers_configured_azure(client, app_and_store):
     assert gemini.generate_calls == []
     project = store.read_manifest(response.json()["project_id"])
     assert project.image_provider.value == "azure"
+
+
+async def test_explicit_azure_generation_does_not_require_gemini(client, app_and_store):
+    app, _, _ = app_and_store
+    azure = FakeGemini()
+    app.dependency_overrides[get_gemini_client] = lambda: None
+    app.dependency_overrides[get_azure_image_provider] = lambda: azure
+
+    response = await client.post(
+        "/generate",
+        data={"prompt": "a knight", "style": "pixel", "provider": "azure"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["provider"] == "azure"
+    assert len(azure.generate_calls) == 1
 
 
 async def test_hyperagent_selection_reports_experimental_unavailability(
@@ -199,6 +241,20 @@ async def test_generate_rejects_empty_prompt(client):
     assert resp.status_code == 422
 
 
+@pytest.mark.parametrize("field", ["prompt", "enhanced_prompt"])
+async def test_generate_rejects_overlong_raw_and_enhanced_prompts(
+    client, app_and_store, field
+):
+    _, _, fake = app_and_store
+    data = {"prompt": "a knight", "style": "pixel"}
+    data[field] = "x" * (MAX_PROMPT_LENGTH + 1)
+
+    response = await client.post("/generate", data=data)
+
+    assert response.status_code == 422
+    assert fake.generate_calls == []
+
+
 async def test_export_single_frame_returns_sheet_and_atlas(client, app_and_store):
     _, store, _ = app_and_store
     pid = (await client.post("/generate", data={"prompt": "p", "style": "pixel"})).json()["project_id"]
@@ -230,6 +286,21 @@ async def test_export_unknown_project_404(client):
     assert resp.status_code == 404
 
 
+@pytest.mark.parametrize(
+    "options",
+    [
+        {"padding": MAX_EXPORT_PADDING + 1},
+        {"cols": MAX_EXPORT_COLS + 1},
+    ],
+)
+async def test_export_rejects_options_above_resource_limits(client, options):
+    response = await client.post(
+        "/export", json={"project_id": "unused", **options}
+    )
+
+    assert response.status_code == 422
+
+
 async def test_list_and_delete_projects(client, app_and_store):
     _, store, _ = app_and_store
     pid = (await client.post("/generate", data={"prompt": "p", "style": "pixel"})).json()["project_id"]
@@ -252,3 +323,122 @@ async def test_oversized_upload_rejected(client, app_and_store):
         files={"reference": ("big.png", io.BytesIO(big), "image/png")},
     )
     assert resp.status_code == 413
+
+
+async def test_upload_read_is_bounded_to_max_plus_one(
+    client, app_and_store, monkeypatch
+):
+    app, _, _ = app_and_store
+    app.state.max_upload_bytes = 1024
+    seen_sizes = []
+    from starlette.datastructures import UploadFile
+
+    original_read = UploadFile.read
+
+    async def recording_read(self, size=-1):
+        seen_sizes.append(size)
+        return await original_read(self, size)
+
+    monkeypatch.setattr(UploadFile, "read", recording_read)
+    image = io.BytesIO()
+    Image.new("RGBA", (2, 2), "red").save(image, format="PNG")
+
+    response = await client.post(
+        "/generate",
+        data={"prompt": "a knight", "style": "pixel"},
+        files={"reference": ("small.png", image.getvalue(), "image/png")},
+    )
+
+    assert response.status_code == 200
+    assert seen_sizes == [app.state.max_upload_bytes + 1]
+
+
+@pytest.mark.parametrize(
+    "size",
+    [
+        (MAX_IMAGE_DIMENSION + 1, 1),
+        (MAX_IMAGE_DIMENSION // 2 + 1, MAX_IMAGE_DIMENSION // 2 + 1),
+    ],
+)
+async def test_reference_dimensions_and_pixels_are_rejected_before_decode(
+    client, size
+):
+    response = await client.post(
+        "/generate",
+        data={"prompt": "a knight", "style": "pixel"},
+        files={
+            "reference": (
+                "wide.png",
+                _png_with_dimensions(*size),
+                "image/png",
+            )
+        },
+    )
+
+    assert response.status_code == 413
+
+
+async def test_truncated_reference_is_rejected_as_invalid(client):
+    image = io.BytesIO()
+    Image.new("RGBA", (8, 8), "red").save(image, format="PNG")
+
+    response = await client.post(
+        "/generate",
+        data={"prompt": "a knight", "style": "pixel"},
+        files={"reference": ("truncated.png", image.getvalue()[:-8], "image/png")},
+    )
+
+    assert response.status_code == 422
+
+
+async def test_decompression_bomb_warning_is_rejected(client, monkeypatch):
+    monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", 1)
+    image = io.BytesIO()
+    Image.new("RGBA", (2, 2), "red").save(image, format="PNG")
+
+    response = await client.post(
+        "/generate",
+        data={"prompt": "a knight", "style": "pixel"},
+        files={"reference": ("bomb.png", image.getvalue(), "image/png")},
+    )
+
+    assert response.status_code == 413
+
+
+async def test_health_responds_while_generation_is_blocked(tmp_path):
+    started = threading.Event()
+    release = threading.Event()
+
+    class SlowGemini(FakeGemini):
+        def generate(self, *args, **kwargs):
+            started.set()
+            assert release.wait(timeout=2)
+            return super().generate(*args, **kwargs)
+
+    store = ProjectStore(root=tmp_path)
+    app = create_app(remover=_fake_remover)
+    app.dependency_overrides[get_store] = lambda: store
+    app.dependency_overrides[get_gemini_client] = lambda: SlowGemini()
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        timer = threading.Timer(0.5, release.set)
+        timer.start()
+        started_at = time.monotonic()
+        generation = asyncio.create_task(
+            client.post("/generate", data={"prompt": "a knight", "style": "pixel"})
+        )
+        try:
+            while not started.is_set():
+                await asyncio.sleep(0.005)
+            health = await asyncio.wait_for(client.get("/health"), timeout=0.2)
+            assert time.monotonic() - started_at < 0.25
+        finally:
+            release.set()
+            timer.cancel()
+        generated = await generation
+
+    assert health.status_code == 200
+    assert health.json() == {"status": "ok"}
+    assert generated.status_code == 200

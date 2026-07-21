@@ -11,6 +11,14 @@ import math
 
 from PIL import Image
 
+from app.models import (
+    MAX_EXPORT_COLS,
+    MAX_EXPORT_PADDING,
+    MAX_SHEET_BYTES,
+    MAX_SHEET_DIMENSION,
+    MAX_SHEET_PIXELS,
+)
+
 Layout = list[dict[str, int]]
 
 
@@ -39,8 +47,12 @@ def pack(
         raise ValueError("pack requires at least one frame")
     if cols is not None and cols < 1:
         raise ValueError("cols must be >= 1 or None")
+    if cols is not None and cols > MAX_EXPORT_COLS:
+        raise ValueError(f"cols must be <= {MAX_EXPORT_COLS}")
     if padding < 0:
         raise ValueError("padding must be >= 0")
+    if padding > MAX_EXPORT_PADDING:
+        raise ValueError(f"padding must be <= {MAX_EXPORT_PADDING}")
 
     n = len(frames)
     ncols = _grid_cols(n, cols)
@@ -52,8 +64,20 @@ def pack(
     fh = max(f.height for f in frames)
     cell_w = fw + 2 * padding
     cell_h = fh + 2 * padding
+    sheet_width = ncols * cell_w
+    sheet_height = nrows * cell_h
+    if sheet_width > MAX_SHEET_DIMENSION or sheet_height > MAX_SHEET_DIMENSION:
+        raise ValueError(
+            f"sprite sheet dimension exceeds {MAX_SHEET_DIMENSION} pixels"
+        )
+    sheet_pixels = sheet_width * sheet_height
+    if sheet_pixels > MAX_SHEET_PIXELS:
+        raise ValueError(f"sprite sheet pixels exceed {MAX_SHEET_PIXELS}")
+    sheet_bytes = sheet_pixels * 4
+    if sheet_bytes > MAX_SHEET_BYTES:
+        raise ValueError(f"sprite sheet bytes exceed {MAX_SHEET_BYTES}")
 
-    sheet = Image.new("RGBA", (ncols * cell_w, nrows * cell_h), (0, 0, 0, 0))
+    sheet = Image.new("RGBA", (sheet_width, sheet_height), (0, 0, 0, 0))
     layout: Layout = []
 
     for i, frame in enumerate(frames):

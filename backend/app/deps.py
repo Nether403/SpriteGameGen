@@ -8,9 +8,12 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from app.config import get_settings
+from fastapi import Depends
+
+from app.config import ProviderReadiness, get_settings
 from app.services.azure_image_provider import AzureImageProvider
 from app.services.gemini_client import GeminiClient, build_default_client
+from app.services.provider_selection import ProviderRegistry
 from app.storage.project_store import ProjectStore
 
 
@@ -20,15 +23,18 @@ def _default_store() -> ProjectStore:
 
 
 @lru_cache(maxsize=1)
-def _default_gemini() -> GeminiClient:
+def _default_gemini() -> GeminiClient | None:
+    if not get_settings().gemini_readiness().available:
+        return None
     return build_default_client()
 
 
 @lru_cache(maxsize=1)
 def _default_azure() -> AzureImageProvider | None:
     settings = get_settings()
-    if not settings.azure_openai_endpoint:
+    if not settings.azure_readiness().available:
         return None
+    settings.require_azure()
     return AzureImageProvider(
         endpoint=settings.azure_openai_endpoint,
         api_key=settings.azure_openai_api_key,
@@ -45,11 +51,34 @@ def get_store() -> ProjectStore:
     return _default_store()
 
 
-def get_gemini_client() -> GeminiClient:
-    """Provide the Gemini client (overridden in tests)."""
+def get_gemini_client() -> GeminiClient | None:
+    """Provide Gemini when configured (overridden in tests)."""
     return _default_gemini()
 
 
 def get_azure_image_provider() -> AzureImageProvider | None:
     """Provide Azure GPT Image when its three required settings are present."""
     return _default_azure()
+
+
+def build_provider_registry() -> ProviderRegistry:
+    """Build the registry outside FastAPI dependency injection."""
+
+    return ProviderRegistry(
+        gemini=get_gemini_client(),
+        azure=get_azure_image_provider(),
+    )
+
+
+def get_provider_registry(
+    gemini: GeminiClient | None = Depends(get_gemini_client),
+    azure: AzureImageProvider | None = Depends(get_azure_image_provider),
+) -> ProviderRegistry:
+    """Provide the shared image-provider selection registry."""
+
+    return ProviderRegistry(gemini=gemini, azure=azure)
+
+
+def get_provider_availability() -> dict[str, ProviderReadiness]:
+    """Expose configuration readiness without constructing provider clients."""
+    return get_settings().provider_availability()

@@ -1,10 +1,11 @@
 // Animate step: pick an action preset + frame count, expand the base sprite
 // into an animation, then preview it (AnimationPlayer) and clean up bad frames
 // (FrameStrip). Presets come from the backend so adding one needs no UI change.
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   animate,
+  isAbortError,
   listAnimationOptions,
   listPresets,
   type AnimationOptions,
@@ -19,12 +20,14 @@ import { ProviderSelector } from "./ProviderSelector";
 export function AnimatePanel() {
   const {
     projectId,
-    viewMode,
-    direction,
-    setDirection,
+    activeProject,
+    setActiveDirection,
+    setActiveProvider,
     setAnimation,
     action: currentAction,
-    provider,
+    mutation,
+    beginMutation,
+    endMutation,
   } = useProjectStore();
   const [presets, setPresets] = useState<Preset[]>([]);
   const [cameraOptions, setCameraOptions] = useState<AnimationOptions[]>([]);
@@ -32,23 +35,45 @@ export function AnimatePanel() {
   const [frames, setFrames] = useState<number | "">("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [metadataAttempt, setMetadataAttempt] = useState(0);
+  const [metadataLoading, setMetadataLoading] = useState(true);
+  const requestRef = useRef<AbortController | null>(null);
+
+  const viewMode = activeProject?.viewMode ?? "side_scroller";
+  const direction = activeProject?.direction ?? "left";
+  const provider = activeProject?.provider ?? "auto";
 
   useEffect(() => {
-    listPresets()
-      .then(setPresets)
-      .catch(() => setError("Could not load presets."));
-  }, []);
+    const controller = new AbortController();
+    setMetadataLoading(true);
+    setError(null);
+    Promise.all([
+      listPresets({ signal: controller.signal }),
+      listAnimationOptions({ signal: controller.signal }),
+    ])
+      .then(([nextPresets, nextOptions]) => {
+        setPresets(nextPresets);
+        setCameraOptions(nextOptions);
+      })
+      .catch((reason) => {
+        if (!isAbortError(reason)) setError("Could not load animation options.");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setMetadataLoading(false);
+      });
+    return () => controller.abort();
+  }, [metadataAttempt]);
 
-  useEffect(() => {
-    listAnimationOptions()
-      .then(setCameraOptions)
-      .catch(() => setError("Could not load camera options."));
-  }, []);
+  useEffect(() => () => requestRef.current?.abort(), []);
 
   const selected = presets.find((p) => p.action === action);
 
   async function onAnimate() {
     if (!projectId) return;
+    const token = beginMutation("animate", projectId);
+    if (token === null) return;
+    const controller = new AbortController();
+    requestRef.current = controller;
     setBusy(true);
     setError(null);
     try {
@@ -56,8 +81,10 @@ export function AnimatePanel() {
         frames: frames === "" ? null : frames,
         direction,
         provider,
+        signal: controller.signal,
       });
       setAnimation(
+        projectId,
         result.action,
         result.fps,
         result.frames,
@@ -65,9 +92,11 @@ export function AnimatePanel() {
         result.provider,
       );
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Animation failed.");
+      if (!isAbortError(e)) setError(e instanceof Error ? e.message : "Animation failed.");
     } finally {
+      requestRef.current = null;
       setBusy(false);
+      endMutation(token);
     }
   }
 
@@ -84,10 +113,15 @@ export function AnimatePanel() {
         options={cameraOptions}
         viewMode={viewMode}
         direction={direction}
-        onChange={setDirection}
+        onChange={setActiveDirection}
       />
 
-      <ProviderSelector id="animate-image-provider" />
+      <ProviderSelector
+        id="animate-image-provider"
+        value={provider}
+        onChange={setActiveProvider}
+        disabled={mutation !== null}
+      />
 
       <label htmlFor="action">Action</label>
       <select
@@ -127,13 +161,23 @@ export function AnimatePanel() {
 
       <button
         onClick={onAnimate}
-        disabled={!projectId || busy || cameraOptions.length === 0}
+        disabled={!projectId || busy || mutation !== null || metadataLoading || cameraOptions.length === 0}
       >
         {busy ? "Animating…" : "Generate animation"}
       </button>
 
       {!projectId && <p className="hint">Generate a sprite first.</p>}
-      {error && <p className="error">{error}</p>}
+      {metadataLoading && <p className="hint" role="status">Loading animation options…</p>}
+      {error && (
+        <div className="metadata-error">
+          <p className="error" role="alert">{error}</p>
+          {!metadataLoading && presets.length === 0 && (
+            <button type="button" className="secondary-button" onClick={() => setMetadataAttempt((value) => value + 1)}>
+              Retry animation options
+            </button>
+          )}
+        </div>
+      )}
 
       {currentAction && (
         <>

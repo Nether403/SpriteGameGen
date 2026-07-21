@@ -1,3 +1,5 @@
+import { useId } from "react";
+
 import type { AnimationOptions, Direction, ViewMode } from "../api/client";
 
 const DIRECTION_LABELS: Record<Direction, string> = {
@@ -28,6 +30,7 @@ export function DirectionControls({
   direction,
   onChange,
 }: DirectionControlsProps) {
+  const groupName = useId();
   const allowed =
     options.find((option) => option.view_mode === viewMode)?.directions ?? [];
 
@@ -39,7 +42,7 @@ export function DirectionControls({
           <label key={value}>
             <input
               type="radio"
-              name="direction"
+              name={`direction-${groupName}`}
               value={value}
               checked={direction === value}
               onChange={() => onChange(value)}

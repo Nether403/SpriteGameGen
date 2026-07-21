@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pydantic import BaseModel
 
 from app.models import ImageProviderName
-from app.services.image_provider import ImageProvider
+from app.services.image_provider import ImageProvider, PromptEnhancer
 
 
 class ProviderUnavailableError(RuntimeError):
@@ -28,17 +28,53 @@ class ProviderOption(BaseModel):
     unavailable_reason: str | None = None
 
 
+@dataclass(frozen=True)
+class ProviderRegistry:
+    """One provider-selection policy shared by every transport adapter."""
+
+    gemini: ImageProvider | None
+    azure: ImageProvider | None
+
+    @property
+    def prompt_enhancer(self) -> PromptEnhancer | None:
+        return self.gemini
+
+    def resolve(self, requested: ImageProviderName) -> ResolvedProvider:
+        return resolve_image_provider(requested, self.gemini, self.azure)
+
+    def resolve_stored(self, stored: ImageProviderName) -> ResolvedProvider:
+        """Resolve a project's concrete provider without applying auto fallback."""
+
+        if stored is ImageProviderName.AUTO:
+            raise ProviderUnavailableError(
+                "Project does not record a concrete image provider; choose a provider "
+                "when generating a replacement project."
+            )
+        return self.resolve(stored)
+
+    def options(self) -> list[ProviderOption]:
+        return list_provider_options(
+            azure_available=self.azure is not None,
+            gemini_available=self.gemini is not None,
+        )
+
+
 def resolve_image_provider(
     requested: ImageProviderName,
-    gemini: ImageProvider,
+    gemini: ImageProvider | None,
     azure: ImageProvider | None,
 ) -> ResolvedProvider:
     if requested is ImageProviderName.AUTO:
-        return ResolvedProvider(
-            ImageProviderName.AZURE if azure is not None else ImageProviderName.GEMINI,
-            azure if azure is not None else gemini,
-        )
+        if azure is not None:
+            return ResolvedProvider(ImageProviderName.AZURE, azure)
+        if gemini is not None:
+            return ResolvedProvider(ImageProviderName.GEMINI, gemini)
+        raise ProviderUnavailableError("No image provider is configured on this backend.")
     if requested is ImageProviderName.GEMINI:
+        if gemini is None:
+            raise ProviderUnavailableError(
+                "Gemini is not configured on this backend."
+            )
         return ResolvedProvider(ImageProviderName.GEMINI, gemini)
     if requested is ImageProviderName.AZURE:
         if azure is None:
@@ -52,12 +88,14 @@ def resolve_image_provider(
     )
 
 
-def list_provider_options(*, azure_available: bool) -> list[ProviderOption]:
+def list_provider_options(
+    *, azure_available: bool, gemini_available: bool
+) -> list[ProviderOption]:
     return [
         ProviderOption(
             id=ImageProviderName.AUTO,
             label="Auto",
-            available=True,
+            available=azure_available or gemini_available,
             description=(
                 "Uses Azure GPT Image when configured, otherwise Gemini."
             ),
@@ -76,8 +114,13 @@ def list_provider_options(*, azure_available: bool) -> list[ProviderOption]:
         ProviderOption(
             id=ImageProviderName.GEMINI,
             label="Gemini",
-            available=True,
+            available=gemini_available,
             description="Existing Vertex AI image pipeline; frame edits remain sequential.",
+            unavailable_reason=(
+                None
+                if gemini_available
+                else "Google Cloud project and credentials are not configured."
+            ),
         ),
         ProviderOption(
             id=ImageProviderName.HYPERAGENT,

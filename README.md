@@ -37,6 +37,7 @@ a service-account JSON key — not a `GEMINI_API_KEY`. Set in `.env`:
 
 | Var | Meaning |
 |---|---|
+| `SPRITE_ENV_FILE` | Optional absolute dotenv path. If omitted, the backend uses `backend/.env` regardless of process CWD. Relative paths inside the selected dotenv file resolve from that file's directory. |
 | `GOOGLE_APPLICATION_CREDENTIALS` | Path to the service-account JSON key file (loaded explicitly; if unset, falls back to `gcloud` ADC) |
 | `GOOGLE_CLOUD_PROJECT` | GCP project ID |
 | `GOOGLE_CLOUD_REGION` | Vertex region (default `global`) |
@@ -54,7 +55,8 @@ a service-account JSON key — not a `GEMINI_API_KEY`. Set in `.env`:
 | `AZURE_IMAGE_TIMEOUT_SECONDS` | Per-attempt Azure request timeout (default `180`) |
 | `AZURE_IMAGE_MAX_RETRIES` | Maximum Azure attempts for retryable failures (default `2`) |
 | `AZURE_IMAGE_MAX_CONCURRENCY` | Maximum concurrent Azure frame edits (default `3`) |
-| `PROJECTS_DIR` | Output dir (default `./projects`) |
+| `PROJECTS_DIR` | Output dir (default `./projects`). Relative values resolve from the selected dotenv file's directory, not the process CWD. |
+| `MAX_UPLOAD_BYTES` | HTTP reference-image upload limit (default `10485760`); reported by MCP capabilities even though direct MCP generation does not accept image uploads. |
 
 > The service-account key must stay local — it is git-ignored (`project-*.json`) and
 > must never be pushed.
@@ -129,10 +131,11 @@ Then work through the three steps:
 
 ## Local MCP server
 
-The backend also installs `sprite-mcp`, a local stdio MCP server backed by the same
-`SpriteService` as FastAPI. It exposes structured tools for `list_projects`,
-`get_project`, `enhance_prompt`, `generate_sprite`, `animate`, `regenerate_frame`, and
-`export_sheet`.
+The backend installs `sprite-mcp`, a local stdio MCP server backed by the same
+synchronous `SpriteService`, `ProviderRegistry`, and project store as FastAPI. Startup is
+storage-only safe: initialization, capability discovery, project reads, and resource reads
+do not require cloud credentials. A creative tool fails with a safe tool error if its
+required provider is not configured.
 
 After installing the backend, register it in an MCP client using the console script:
 
@@ -140,19 +143,85 @@ After installing the backend, register it in an MCP client using the console scr
 {
   "mcpServers": {
     "sprite-game": {
-      "command": "D:\\SpriteGameGen\\backend\\.venv\\Scripts\\sprite-mcp.exe"
+      "command": "D:\\SpriteGameGen\\backend\\.venv\\Scripts\\sprite-mcp.exe",
+      "env": {
+        "SPRITE_ENV_FILE": "D:\\SpriteGameGen\\backend\\.env",
+        "PROJECTS_DIR": "D:\\SpriteGameGen\\projects"
+      }
     }
   }
 }
 ```
 
-The server uses stdio and returns absolute local asset paths. It has no delete tool,
-does not accept arbitrary/reference-image paths, and operates only on `PROJECTS_DIR`.
-Generation tools require the same Vertex credentials and model settings as the web
-app; project listing and the smoke test do not call Gemini.
+`SPRITE_ENV_FILE` must be absolute. `PROJECTS_DIR` should also be absolute in an MCP
+client configuration so behavior is explicit even when the client launches the server
+from a foreign working directory.
+
+### Direct MCP contract
+
+The exact direct tool inventory is:
+
+| Tool | Provider/billing effect | Local overwrite effect |
+|---|---|---|
+| `get_capabilities` | None | None |
+| `list_projects` | None | None |
+| `get_project` | None | None |
+| `enhance_prompt` | Gemini text call; may incur provider billing | None |
+| `generate_sprite` | One image-generation call through `auto`, `azure`, or `gemini`; may incur provider billing | Creates a new project; does not overwrite an existing project |
+| `animate` | Multiple image-edit calls through the provider stored on the project; may incur provider billing | Replaces prior animation frames and animation metadata |
+| `regenerate_frame` | One image-edit call through the provider stored on the project; may incur provider billing | Replaces the selected frame |
+| `export_sheet` | No provider call or provider billing | Replaces the matching local sprite sheet and atlas outputs |
+
+`auto` prefers Azure when configured and otherwise uses Gemini, but only during initial
+generation. The resolved concrete provider is persisted. `animate` and
+`regenerate_frame` always use that stored provider and return an error if it is no longer
+configured; they never silently switch providers.
+
+`get_capabilities` reports application version `0.1.0`, provider availability, action
+presets, camera/direction combinations, and all prompt, upload, decoded-image, export,
+sheet, and frame-error limits. FastMCP 1.28.1 does not expose a public FastMCP constructor
+argument for the application version, so the application version is reported here rather
+than in the MCP initialization server-version field.
+
+Project outputs are MCP-specific DTOs. They include revision, concrete provider,
+operation outcome, frame status/errors, absolute local paths, and `sprite://` resource
+URIs, but never expose the persisted/browser-only `Frame.url` field. The server publishes
+two read-only resource templates:
+
+```text
+sprite://projects/{project_id}/manifest
+sprite://projects/{project_id}/assets/{filename}
+```
+
+Both resolve through the canonical `PROJECTS_DIR` store and reject unsafe IDs, filenames,
+symlink escapes, and traversal. The server does not accept arbitrary filesystem paths or
+reference-image paths.
+
+FastMCP 1.28.1 generates useful input schemas from `Annotated`/Pydantic constraints, but
+its public tool decorator does not provide a strict-extra option. Unknown top-level tool
+arguments are therefore ignored by the SDK's generated argument model. This limitation is
+covered by a contract test; the server does not patch private SDK internals.
+
+### Capability boundaries
+
+The eight tools above are the complete set exported directly by this MCP server. The web
+application also has HTTP-only operations such as reference-image upload and frame delete,
+and `SpriteService` contains internal operations used by those routes. Their absence from
+MCP `tools/list` means they are not direct MCP tools, not that the product lacks those
+capabilities.
+
+Hyperagent remains an experimental remote-agent capability. It appears in provider
+capability metadata as unavailable, but it is not accepted by direct MCP generation and is
+not an exported tool. Its authenticated, agent-mediated image path still requires separate
+validation; do not infer remote-agent capability from the direct server's tool inventory.
 
 Run the credential-free protocol smoke test from the repository root:
 
 ```powershell
 backend\.venv\Scripts\python.exe scripts\smoke_mcp.py
 ```
+
+The smoke script launches the installed `sprite-mcp` console entrypoint from a temporary
+foreign CWD with absolute temporary `SPRITE_ENV_FILE` and `PROJECTS_DIR` values, removes
+cloud credentials, initializes stdio, asserts the exact tool inventory, calls
+`get_capabilities`, and prints only its parent-process success line.

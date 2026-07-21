@@ -1,18 +1,18 @@
-"""Application configuration.
+"""Provider-independent application configuration.
 
-Auth model: Vertex AI / Google Agent Platform. Preferred path is an explicit
-service-account JSON key (``GOOGLE_APPLICATION_CREDENTIALS``); when that is unset
-the SDK falls back to Application Default Credentials (e.g. a ``gcloud`` login).
-The credentials path, GCP project, and region are read from the environment here
-and nowhere else. Model IDs also live only here and are read solely by
-``gemini_client.py``.
+The dotenv file is selected deterministically: ``SPRITE_ENV_FILE`` may point to
+an absolute file, otherwise ``backend/.env`` is used regardless of process CWD.
+Relative filesystem settings are resolved from that file's directory.
 
-Validation is fail-loud: a credentials path that points at a missing file, or an
-unset project, raises at settings-construction time (app startup), never
-mid-request. An empty credentials path is allowed (ADC fallback).
+Constructing settings validates common configuration and Azure's all-or-empty
+identity tuple. Provider-specific requirements are checked explicitly through
+the readiness and require methods, allowing storage-only operation.
 """
+
 from __future__ import annotations
 
+import os
+from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
@@ -20,9 +20,20 @@ from pydantic import Field, ValidationError, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+DEFAULT_ENV_FILE = Path(__file__).resolve().parents[1] / ".env"
+
+
+@dataclass(frozen=True)
+class ProviderReadiness:
+    """Configuration-only provider availability, safe to expose in health data."""
+
+    available: bool
+    detail: str
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=None,
         env_file_encoding="utf-8",
         extra="ignore",
         case_sensitive=False,
@@ -53,28 +64,16 @@ class Settings(BaseSettings):
 
     # --- Storage / limits ---
     projects_dir: str = Field(default="./projects")
-    max_upload_bytes: int = Field(default=10 * 1024 * 1024)  # 10 MiB
+    max_upload_bytes: int = Field(default=10 * 1024 * 1024, gt=0)  # 10 MiB
+    creative_operation_timeout_seconds: float = Field(default=900.0, gt=0, le=3600)
+    creative_operation_max_concurrency: int = Field(default=2, ge=1, le=32)
 
     @model_validator(mode="after")
-    def _validate_auth(self) -> "Settings":
-        # The service-account key is OPTIONAL: when set it is used explicitly,
-        # and when empty the SDK falls back to Application Default Credentials
-        # (e.g. a gcloud login). Either way a project is required for Vertex.
-        if self.google_application_credentials:
-            cred_path = Path(self.google_application_credentials)
-            if not cred_path.is_file():
-                raise ValueError(
-                    f"GOOGLE_APPLICATION_CREDENTIALS points at a missing file: "
-                    f"{cred_path}"
-                )
-        if not self.google_cloud_project:
-            raise ValueError(
-                "GOOGLE_CLOUD_PROJECT is not set. Vertex AI requires a GCP project ID."
-            )
+    def _validate_azure_identity(self) -> "Settings":
         azure_identity = (
-            self.azure_openai_endpoint,
-            self.azure_openai_api_key,
-            self.azure_openai_deployment,
+            self.azure_openai_endpoint.strip(),
+            self.azure_openai_api_key.strip(),
+            self.azure_openai_deployment.strip(),
         )
         if any(azure_identity) and not all(azure_identity):
             raise ValueError(
@@ -83,14 +82,101 @@ class Settings(BaseSettings):
             )
         return self
 
+    def gemini_readiness(self) -> ProviderReadiness:
+        """Report whether Gemini can be constructed, without constructing it."""
+        if self.google_application_credentials:
+            credentials = Path(self.google_application_credentials)
+            if not credentials.is_file():
+                return ProviderReadiness(
+                    available=False,
+                    detail=(
+                        "GOOGLE_APPLICATION_CREDENTIALS points at a missing file: "
+                        f"{credentials}"
+                    ),
+                )
+        if not self.google_cloud_project.strip():
+            return ProviderReadiness(
+                available=False,
+                detail=(
+                    "GOOGLE_CLOUD_PROJECT is not set. Vertex AI requires a GCP "
+                    "project ID."
+                ),
+            )
+        auth = (
+            "service-account credentials configured"
+            if self.google_application_credentials
+            else "configured with Application Default Credentials"
+        )
+        return ProviderReadiness(available=True, detail=auth)
+
+    def require_gemini(self) -> "Settings":
+        """Raise an actionable error unless Gemini configuration is ready."""
+        readiness = self.gemini_readiness()
+        if not readiness.available:
+            raise RuntimeError(f"Gemini is unavailable: {readiness.detail}")
+        return self
+
+    def azure_readiness(self) -> ProviderReadiness:
+        """Report whether Azure GPT Image is configured, without constructing it."""
+        if not self.azure_openai_endpoint.strip():
+            return ProviderReadiness(
+                available=False,
+                detail="Azure OpenAI image provider is not configured",
+            )
+        return ProviderReadiness(
+            available=True,
+            detail="Azure OpenAI image provider is configured",
+        )
+
+    def require_azure(self) -> "Settings":
+        """Raise an actionable error unless Azure image configuration is ready."""
+        readiness = self.azure_readiness()
+        if not readiness.available:
+            raise RuntimeError(f"Azure image provider is unavailable: {readiness.detail}")
+        return self
+
+    def provider_availability(self) -> dict[str, ProviderReadiness]:
+        """Return all provider readiness metadata without constructing clients."""
+        return {
+            "gemini": self.gemini_readiness(),
+            "azure": self.azure_readiness(),
+        }
+
+
+def _selected_env_file() -> Path:
+    configured = os.environ.get("SPRITE_ENV_FILE")
+    if not configured:
+        return DEFAULT_ENV_FILE
+    path = Path(configured).expanduser()
+    if not path.is_absolute():
+        raise RuntimeError("SPRITE_ENV_FILE must be an absolute path")
+    return path.resolve()
+
+
+def _resolve_path(value: str, base_dir: Path) -> str:
+    if not value:
+        return value
+    path = Path(value).expanduser()
+    if not path.is_absolute():
+        path = base_dir / path
+    return str(path.resolve())
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
-    """Return cached settings, failing loudly on invalid/missing auth config."""
+    """Return cached common settings from the deterministic dotenv location."""
+    env_file = _selected_env_file()
     try:
-        return Settings()
+        settings = Settings(_env_file=env_file, _env_file_encoding="utf-8")
     except ValidationError as exc:
-        # Re-raise as a plain, actionable RuntimeError so startup failure is clear
-        # and not buried in a pydantic traceback.
-        messages = "; ".join(err["msg"].removeprefix("Value error, ") for err in exc.errors())
+        messages = "; ".join(
+            err["msg"].removeprefix("Value error, ") for err in exc.errors()
+        )
         raise RuntimeError(f"Invalid configuration: {messages}") from exc
+
+    base_dir = env_file.parent
+    settings.google_application_credentials = _resolve_path(
+        settings.google_application_credentials, base_dir
+    )
+    settings.projects_dir = _resolve_path(settings.projects_dir, base_dir)
+    return settings

@@ -9,6 +9,7 @@ const enhancePrompt = vi.fn();
 const listAnimationOptions = vi.fn();
 const listImageProviders = vi.fn();
 vi.mock("../api/client", () => ({
+  isAbortError: (error: unknown) => error instanceof Error && error.name === "AbortError",
   generate: (...args: unknown[]) => generate(...args),
   enhancePrompt: (...args: unknown[]) => enhancePrompt(...args),
   listAnimationOptions: () => listAnimationOptions(),
@@ -97,6 +98,7 @@ describe("GeneratePanel directions", () => {
       direction: "up_left",
       enhancedPrompt: null,
       provider: "azure",
+      signal: expect.any(AbortSignal),
     });
     expect(
       (screen.getByRole("option", { name: /Hyperagent Experimental/ }) as HTMLOptionElement)
@@ -129,6 +131,7 @@ describe("GeneratePanel directions", () => {
     await waitFor(() => expect(generate).toHaveBeenCalled());
     expect(generate.mock.calls[generate.mock.calls.length - 1]?.[3]).toMatchObject({
       enhancedPrompt: "an edited silver knight",
+      signal: expect.any(AbortSignal),
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Revert to original" }));
@@ -157,6 +160,7 @@ describe("GeneratePanel directions", () => {
     await waitFor(() => expect(generate).toHaveBeenCalled());
     expect(generate.mock.calls[generate.mock.calls.length - 1]?.[3]).toMatchObject({
       enhancedPrompt: null,
+      signal: expect.any(AbortSignal),
     });
   });
 });

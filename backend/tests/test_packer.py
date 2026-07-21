@@ -3,6 +3,14 @@ import numpy as np
 import pytest
 from PIL import Image
 
+from app.models import (
+    MAX_EXPORT_COLS,
+    MAX_EXPORT_PADDING,
+    MAX_SHEET_BYTES,
+    MAX_SHEET_DIMENSION,
+    MAX_SHEET_PIXELS,
+)
+from app.pipeline import packer
 from app.pipeline.packer import pack
 
 
@@ -100,3 +108,48 @@ def test_pack_rejects_bad_cols_or_padding():
         pack(_frames(2), cols=0, padding=0)
     with pytest.raises(ValueError):
         pack(_frames(2), cols=None, padding=-1)
+
+
+@pytest.mark.parametrize(
+    ("cols", "padding"),
+    [(MAX_EXPORT_COLS + 1, 0), (None, MAX_EXPORT_PADDING + 1)],
+)
+def test_pack_enforces_export_option_upper_bounds(cols, padding):
+    with pytest.raises(ValueError):
+        pack(_frames(1), cols=cols, padding=padding)
+
+
+class _SizedFrame:
+    mode = "RGBA"
+
+    def __init__(self, width, height):
+        self.width = width
+        self.height = height
+
+
+@pytest.mark.parametrize(
+    ("size", "message"),
+    [
+        ((MAX_SHEET_DIMENSION + 1, 1), "dimension"),
+        ((MAX_SHEET_DIMENSION, MAX_SHEET_DIMENSION), "pixels"),
+        (
+            (MAX_SHEET_DIMENSION // 2 + 1, MAX_SHEET_DIMENSION // 2 + 1),
+            "bytes",
+        ),
+    ],
+)
+def test_pack_rejects_oversized_sheet_before_pillow_allocation(
+    monkeypatch, size, message
+):
+    allocated = False
+
+    def fail_if_allocated(*args, **kwargs):
+        nonlocal allocated
+        allocated = True
+        raise AssertionError("Pillow allocation must not be attempted")
+
+    monkeypatch.setattr(packer.Image, "new", fail_if_allocated)
+
+    with pytest.raises(ValueError, match=message):
+        pack([_SizedFrame(*size)], cols=1, padding=0)
+    assert allocated is False

@@ -132,4 +132,5 @@ async def test_export_multi_frame_xml(client, app_and_store):
 
     root = ET.fromstring(_read_atlas(store, pid, "sprite.xml"))
     assert root.tag == "TextureAtlas"
+    assert root.attrib["imagePath"] == "sprite_sheet.png"
     assert len(root.findall("SubTexture")) == 4

@@ -6,10 +6,16 @@ from pydantic import ValidationError
 from app.models import (
     AnimateRequest,
     Direction,
+    EnhancePromptRequest,
     ExportFormat,
     ExportOptions,
     Frame,
+    FrameErrorCode,
     FrameStatus,
+    MAX_EXPORT_COLS,
+    MAX_EXPORT_PADDING,
+    MAX_FRAME_ERROR_MESSAGE_LENGTH,
+    MAX_PROMPT_LENGTH,
     Project,
     Style,
     ViewMode,
@@ -63,15 +69,34 @@ def test_frame_defaults_and_construction():
     assert frame.index == 0
     assert frame.status is FrameStatus.OK
     assert frame.url == "/projects/x/frame_0.png"
+    assert frame.error_code is None
+    assert frame.error_message is None
 
-    failed = Frame(index=2, url=None, status=FrameStatus.FAILED)
+    failed = Frame(
+        index=2,
+        url=None,
+        status=FrameStatus.FAILED,
+        error_code=FrameErrorCode.PROVIDER,
+        error_message="Image provider failed to generate this frame.",
+    )
     assert failed.status is FrameStatus.FAILED
     assert failed.url is None
+    assert failed.error_code is FrameErrorCode.PROVIDER
 
 
 def test_frame_rejects_negative_index():
     with pytest.raises(ValidationError):
         Frame(index=-1, url="x.png")
+
+
+def test_frame_rejects_unsafe_error_message_length():
+    with pytest.raises(ValidationError):
+        Frame(
+            index=0,
+            status=FrameStatus.FAILED,
+            error_code=FrameErrorCode.PROVIDER,
+            error_message="x" * (MAX_FRAME_ERROR_MESSAGE_LENGTH + 1),
+        )
 
 
 def test_project_construction():
@@ -94,6 +119,7 @@ def test_project_metadata_defaults_are_utc_and_versioned():
     project = Project(id="x", prompt="p", style=Style.PIXEL)
 
     assert project.schema_version == 1
+    assert project.revision == 0
     assert project.created_at.tzinfo == timezone.utc
     assert project.updated_at.tzinfo == timezone.utc
     assert isinstance(project.created_at, datetime)
@@ -126,6 +152,33 @@ def test_export_options_rejects_bad_format():
 def test_export_options_rejects_zero_cols():
     with pytest.raises(ValidationError):
         ExportOptions(cols=0)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("padding", MAX_EXPORT_PADDING + 1), ("cols", MAX_EXPORT_COLS + 1)],
+)
+def test_export_options_rejects_values_above_resource_limits(field, value):
+    with pytest.raises(ValidationError):
+        ExportOptions(**{field: value})
+
+
+def test_export_resource_limits_are_visible_in_json_schema():
+    properties = ExportOptions.model_json_schema()["properties"]
+
+    assert properties["padding"]["maximum"] == MAX_EXPORT_PADDING
+    assert properties["cols"]["anyOf"][0]["maximum"] == MAX_EXPORT_COLS
+
+
+def test_prompt_models_share_one_maximum_length():
+    assert (
+        EnhancePromptRequest.model_json_schema()["properties"]["prompt"]["maxLength"]
+        == MAX_PROMPT_LENGTH
+    )
+    with pytest.raises(ValidationError):
+        EnhancePromptRequest(
+            prompt="x" * (MAX_PROMPT_LENGTH + 1), style=Style.PIXEL
+        )
 
 
 def test_animate_request_defaults():

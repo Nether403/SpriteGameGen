@@ -12,6 +12,11 @@ body {
   margin: 0;
 }
 
+img,
+canvas {
+  max-width: 100%;
+}
+
 .app {
   max-width: 900px;
   margin: 0 auto;
@@ -32,6 +37,7 @@ header p {
   grid-template-columns: 1fr 1fr;
   gap: 1.5rem;
   align-items: start;
+  min-width: 0;
 }
 
 /* The Animate panel holds the player + frame strip, so give it full width. */
@@ -47,6 +53,11 @@ header p {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
+  min-width: 0;
+}
+
+fieldset {
+  min-inline-size: 0;
 }
 
 .panel h2 {
@@ -81,7 +92,7 @@ header p {
 
 .project-list {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr));
   gap: 0.75rem;
   list-style: none;
   margin: 0;
@@ -169,6 +180,7 @@ header p {
 
 .project-card-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.5rem;
   margin-top: 0.6rem;
 }
@@ -191,8 +203,12 @@ header p {
 
 textarea,
 select,
-input[type="file"] {
+input[type="file"],
+input[type="number"],
+input[type="range"] {
   width: 100%;
+  min-width: 0;
+  max-width: 100%;
   padding: 0.5rem;
   border: 1px solid #ccd;
   border-radius: 6px;
@@ -204,6 +220,7 @@ input[type="file"] {
   border-radius: 6px;
   display: flex;
   gap: 1rem;
+  flex-wrap: wrap;
 }
 
 .style-toggle label {
@@ -256,6 +273,7 @@ input[type="file"] {
   border: 1px solid #d8d6ee;
   border-radius: 6px;
   background: #fafaff;
+  min-width: 0;
 }
 
 .enhancer-toggle {
@@ -281,6 +299,13 @@ input[type="file"] {
   gap: 0.5rem;
 }
 
+.metadata-error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
 .enhancer-accepted {
   margin: 0;
   color: #276738;
@@ -295,6 +320,8 @@ button {
   color: #fff;
   font: inherit;
   cursor: pointer;
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 
 button:disabled {
@@ -332,6 +359,10 @@ button:disabled {
   margin: 0;
 }
 
+.downloads a {
+  overflow-wrap: anywhere;
+}
+
 .frame-strip h3 {
   margin: 0 0 0.5rem;
   font-size: 1rem;
@@ -347,6 +378,7 @@ button:disabled {
   border-radius: 6px;
   background: #fdf3f3;
   color: #8f2d2d;
+  flex-wrap: wrap;
 }
 
 .failure-summary button {
@@ -361,6 +393,10 @@ button:disabled {
   display: flex;
   gap: 0.75rem;
   overflow-x: auto;
+}
+
+.frame-strip {
+  min-width: 0;
 }
 
 .frame {
@@ -422,6 +458,7 @@ button:disabled {
   align-items: center;
   gap: 0.75rem;
   margin-top: 0.5rem;
+  flex-wrap: wrap;
 }
 
 .player-controls input[type="range"] {
@@ -447,5 +484,29 @@ button:disabled {
 
   .project-browser-header .secondary-button {
     align-self: flex-start;
+  }
+}
+
+@media (max-width: 360px) {
+  .app {
+    padding: 0.75rem;
+  }
+
+  .panel {
+    padding: 1rem;
+  }
+
+  .project-card {
+    flex-direction: column;
+  }
+
+  .project-thumbnail {
+    flex-basis: 64px;
+    width: 64px;
+    height: 64px;
+  }
+
+  .player-controls input[type="range"] {
+    flex-basis: 100%;
   }
 }

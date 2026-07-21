@@ -6,6 +6,9 @@ or parses responses.
 """
 from __future__ import annotations
 
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+import threading
 from typing import Protocol
 
 from PIL import Image
@@ -23,6 +26,40 @@ class ImageSafetyBlockedError(ImageProviderError):
 
 class ImageProviderTimeoutError(ImageProviderError):
     """A provider request exceeded its configured timeout."""
+
+
+_PROVIDER_SEMAPHORE_LOCK = threading.Lock()
+
+
+@contextmanager
+def provider_concurrency_slot(
+    provider: object,
+    *,
+    check_cancelled: Callable[[], None] | None = None,
+) -> Iterator[None]:
+    """Bound calls across every service sharing one cached provider instance."""
+
+    semaphore = getattr(provider, "_sprite_concurrency_semaphore", None)
+    if semaphore is None:
+        with _PROVIDER_SEMAPHORE_LOCK:
+            semaphore = getattr(provider, "_sprite_concurrency_semaphore", None)
+            if semaphore is None:
+                limit = max(1, int(getattr(provider, "max_concurrency", 1)))
+                semaphore = threading.BoundedSemaphore(limit)
+                setattr(provider, "_sprite_concurrency_semaphore", semaphore)
+
+    acquired = False
+    try:
+        while not acquired:
+            if check_cancelled is not None:
+                check_cancelled()
+            acquired = semaphore.acquire(timeout=0.05)
+        if check_cancelled is not None:
+            check_cancelled()
+        yield
+    finally:
+        if acquired:
+            semaphore.release()
 
 
 class ImageProvider(Protocol):

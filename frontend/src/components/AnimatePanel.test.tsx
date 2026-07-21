@@ -58,8 +58,15 @@ describe("AnimatePanel directions", () => {
     });
     useProjectStore.setState({
       projectId: "p1",
-      viewMode: "top_down_2_5d",
-      direction: "down_right",
+      activeProject: {
+        prompt: "a knight",
+        enhancedPrompt: null,
+        promptSource: "raw",
+        style: "pixel",
+        viewMode: "top_down_2_5d",
+        direction: "down_right",
+        provider: "auto",
+      },
     });
 
     render(<AnimatePanel />);
@@ -73,7 +80,8 @@ describe("AnimatePanel directions", () => {
       frames: null,
       direction: "up_left",
       provider: "auto",
+      signal: expect.any(AbortSignal),
     });
-    expect(useProjectStore.getState().direction).toBe("up_left");
+    expect(useProjectStore.getState().activeProject?.direction).toBe("up_left");
   });
 });

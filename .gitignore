@@ -49,3 +49,13 @@ Thumbs.db
 
 # Stray gcloud CLI changelog dump (not a project file)
 GCloud-update-notice.txt
+
+# --- Graphify local/cache/query artifacts ---
+# Core outputs remain trackable: GRAPH_REPORT.md, graph.json, and graph.html.
+/graphify-out/.graphify_python
+/graphify-out/.graphify_root
+/graphify-out/cache/
+/graphify-out/cost.json
+/graphify-out/QUERY_REPORT.md
+/graphify-out/memory/query_*.md
+/graphify-out/query-runs/

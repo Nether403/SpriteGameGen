@@ -95,4 +95,90 @@ describe("project store", () => {
       action: null,
     });
   });
+
+  it("ignores an animation response for a project that is no longer active", () => {
+    useProjectStore.getState().loadProject(detail);
+    useProjectStore.getState().loadProject({
+      ...detail,
+      id: "p2",
+      prompt: "a wizard",
+      sprite_url: "/projects/p2/sprite.png",
+      frames: [],
+      action: null,
+    });
+
+    useProjectStore.getState().setAnimation(
+      "p1",
+      "run",
+      12,
+      [{ index: 0, url: "/projects/p1/frame_0.png", status: "ok" }],
+      "right",
+      "gemini",
+    );
+
+    expect(useProjectStore.getState()).toMatchObject({
+      projectId: "p2",
+      action: null,
+      frames: [],
+    });
+  });
+
+  it("keeps generation draft edits separate from the open project context", () => {
+    useProjectStore.getState().loadProject(detail);
+
+    useProjectStore.getState().setViewMode("side_scroller");
+    useProjectStore.getState().setDirection("right");
+    useProjectStore.getState().setStyle("pixel");
+    useProjectStore.getState().setProvider("hyperagent");
+
+    expect(useProjectStore.getState().activeProject).toMatchObject({
+      prompt: "a knight",
+      style: "hires",
+      viewMode: "top_down_2_5d",
+      direction: "up_left",
+      provider: "azure",
+    });
+    expect(useProjectStore.getState()).toMatchObject({
+      style: "pixel",
+      viewMode: "side_scroller",
+      direction: "right",
+      provider: "hyperagent",
+    });
+  });
+
+  it("allows only one shared project mutation at a time", () => {
+    const openToken = useProjectStore.getState().beginMutation("open", "p1");
+
+    expect(openToken).not.toBeNull();
+    expect(useProjectStore.getState().beginMutation("export", "p2")).toBeNull();
+    expect(useProjectStore.getState().mutation).toMatchObject({
+      kind: "open",
+      projectId: "p1",
+    });
+
+    useProjectStore.getState().endMutation(openToken as number);
+    expect(useProjectStore.getState().beginMutation("export", "p2")).not.toBeNull();
+  });
+
+  it("ignores stale frame and export commits", () => {
+    useProjectStore.getState().loadProject(detail);
+    useProjectStore.getState().loadProject({ ...detail, id: "p2", frames: [] });
+
+    useProjectStore.getState().setFrame("p1", {
+      index: 0,
+      url: "/projects/p1/frame.png",
+      status: "ok",
+    });
+    useProjectStore.getState().setExport(
+      "p1",
+      { sheet_url: "old-sheet", atlas_url: "old-atlas" },
+      { format: "json", padding: 0, cols: null },
+    );
+
+    expect(useProjectStore.getState()).toMatchObject({
+      projectId: "p2",
+      frames: [],
+      exportResult: null,
+    });
+  });
 });

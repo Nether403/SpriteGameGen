@@ -29,6 +29,10 @@ export interface ExportResult {
   atlas_url: string;
 }
 
+export interface RequestOptions {
+  signal?: AbortSignal;
+}
+
 export interface Frame {
   index: number;
   url: string | null;
@@ -87,18 +91,28 @@ export class ApiError extends Error {
   }
 }
 
+export function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
+}
+
 async function unwrap<T>(res: Response): Promise<T> {
   if (!res.ok) {
-    let detail = res.statusText;
+    let detail = res.statusText.trim();
     try {
       const body = await res.json();
-      if (body?.detail) detail = typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail);
+      if (body?.detail) {
+        detail = typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail);
+      }
     } catch {
       // non-JSON error body; keep statusText
     }
-    throw new ApiError(res.status, detail);
+    throw new ApiError(res.status, detail || `Request failed (${res.status})`);
   }
   return (await res.json()) as T;
+}
+
+async function unwrapEmpty(res: Response): Promise<void> {
+  if (!res.ok) await unwrap<never>(res);
 }
 
 // POST /generate — multipart form (prompt + style + optional reference file).
@@ -111,6 +125,7 @@ export async function generate(
     direction?: Direction;
     enhancedPrompt?: string | null;
     provider?: ImageProviderName;
+    signal?: AbortSignal;
   } = {},
 ): Promise<GenerateResult> {
   const form = new FormData();
@@ -121,7 +136,7 @@ export async function generate(
   form.append("provider", opts.provider ?? "auto");
   if (opts.enhancedPrompt) form.append("enhanced_prompt", opts.enhancedPrompt);
   if (reference) form.append("reference", reference);
-  const res = await fetch("/generate", { method: "POST", body: form });
+  const res = await fetch("/generate", { method: "POST", body: form, signal: opts.signal });
   return unwrap<GenerateResult>(res);
 }
 
@@ -139,11 +154,13 @@ export interface EnhancePromptResult {
 
 export async function enhancePrompt(
   request: EnhancePromptRequest,
+  options: RequestOptions = {},
 ): Promise<EnhancePromptResult> {
   const res = await fetch("/prompts/enhance", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(request),
+    signal: options.signal,
   });
   return unwrap<EnhancePromptResult>(res);
 }
@@ -152,7 +169,7 @@ export async function enhancePrompt(
 export async function exportProject(
   projectId: string,
   format: ExportFormat,
-  opts: { padding?: number; cols?: number | null } = {},
+  opts: { padding?: number; cols?: number | null; signal?: AbortSignal } = {},
 ): Promise<ExportResult> {
   const res = await fetch("/export", {
     method: "POST",
@@ -163,6 +180,7 @@ export async function exportProject(
       padding: opts.padding ?? 0,
       cols: opts.cols ?? null,
     }),
+    signal: opts.signal,
   });
   return unwrap<ExportResult>(res);
 }
@@ -187,6 +205,7 @@ export async function animate(
     fps?: number;
     direction?: Direction;
     provider?: ImageProviderName;
+    signal?: AbortSignal;
   } = {},
 ): Promise<AnimateResult> {
   const res = await fetch("/animate", {
@@ -200,6 +219,7 @@ export async function animate(
       direction: opts.direction ?? "left",
       ...(opts.provider ? { provider: opts.provider } : {}),
     }),
+    signal: opts.signal,
   });
   return unwrap<AnimateResult>(res);
 }
@@ -209,6 +229,7 @@ export async function regenerateFrame(
   projectId: string,
   index: number,
   provider?: ImageProviderName,
+  options: RequestOptions = {},
 ): Promise<Frame> {
   const res = await fetch("/animate/frame", {
     method: "POST",
@@ -218,6 +239,7 @@ export async function regenerateFrame(
       index,
       ...(provider ? { provider } : {}),
     }),
+    signal: options.signal,
   });
   return unwrap<Frame>(res);
 }
@@ -227,11 +249,13 @@ export async function regenerateFrame(
 export async function deleteFrame(
   projectId: string,
   index: number,
+  options: RequestOptions = {},
 ): Promise<AnimateResult> {
   const res = await fetch("/animate/frame", {
     method: "DELETE",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ project_id: projectId, index }),
+    signal: options.signal,
   });
   return unwrap<AnimateResult>(res);
 }
@@ -258,27 +282,39 @@ export interface ImageProviderOption {
   unavailable_reason: string | null;
 }
 
-export async function listPresets(): Promise<Preset[]> {
-  return unwrap<Preset[]>(await fetch("/presets"));
+export async function listPresets(options: RequestOptions = {}): Promise<Preset[]> {
+  return unwrap<Preset[]>(await fetch("/presets", { signal: options.signal }));
 }
 
-export async function listAnimationOptions(): Promise<AnimationOptions[]> {
-  return unwrap<AnimationOptions[]>(await fetch("/animation-options"));
+export async function listAnimationOptions(options: RequestOptions = {}): Promise<AnimationOptions[]> {
+  return unwrap<AnimationOptions[]>(await fetch("/animation-options", { signal: options.signal }));
 }
 
-export async function listImageProviders(): Promise<ImageProviderOption[]> {
-  return unwrap<ImageProviderOption[]>(await fetch("/image-providers"));
+export async function listImageProviders(options: RequestOptions = {}): Promise<ImageProviderOption[]> {
+  return unwrap<ImageProviderOption[]>(await fetch("/image-providers", { signal: options.signal }));
 }
 
-export async function listProjects(): Promise<ProjectSummary[]> {
-  return unwrap<ProjectSummary[]>(await fetch("/projects"));
+export async function listProjects(options: RequestOptions = {}): Promise<ProjectSummary[]> {
+  return unwrap<ProjectSummary[]>(await fetch("/projects", { signal: options.signal }));
 }
 
-export async function getProject(projectId: string): Promise<ProjectDetail> {
-  return unwrap<ProjectDetail>(await fetch(`/projects/${projectId}`));
+export async function getProject(
+  projectId: string,
+  options: RequestOptions = {},
+): Promise<ProjectDetail> {
+  return unwrap<ProjectDetail>(
+    await fetch(`/projects/${encodeURIComponent(projectId)}`, { signal: options.signal }),
+  );
 }
 
-export async function deleteProject(projectId: string): Promise<void> {
-  const res = await fetch(`/projects/${projectId}`, { method: "DELETE" });
-  if (!res.ok) throw new ApiError(res.status, res.statusText);
+export async function deleteProject(
+  projectId: string,
+  options: RequestOptions = {},
+): Promise<void> {
+  await unwrapEmpty(
+    await fetch(`/projects/${encodeURIComponent(projectId)}`, {
+      method: "DELETE",
+      signal: options.signal,
+    }),
+  );
 }

@@ -1,645 +1,311 @@
 # SpriteGameGen — Graph Query Report
 
-Generated from `graphify-out/graph.json` (541 nodes, 976 edges, 31 communities).
+Generated from `graphify-out/graph.json` (**947** nodes, **2,362** edges, **48** communities) after the 2026-07-21 incremental update.
 
-**Method:** BFS traversal via `graphify query`, shortest-path via `graphify path`, node inspection via `graphify explain`, and manual verification of INFERRED edges against source files.
+**Method:** Vocab-constrained BFS via `graphify query`, shortest-path via `graphify path`, node inspection via `graphify explain`, INFERRED-edge audit against `graph.json`, and manual verification against source files.
+
+**Note:** Several high-traffic labels are duplicated across the graph (e.g. **7** `Style` nodes, **9** `ViewMode` nodes). Unless stated otherwise, analyses refer to the canonical backend domain nodes:
+
+| Label | Canonical node ID | Degree | Community |
+|-------|-------------------|--------|-----------|
+| `ProjectStore` | `backend_app_storage_project_store_projectstore` | 77 | Projects API Routes |
+| `SpriteService` | `backend_app_services_sprite_service_spriteservice` | 68 | MCP Server Core |
+| `GeminiClient` | `backend_app_services_gemini_client_geminiclient` | 36 | Gemini Client |
+| `ViewMode` | `backend_app_models_viewmode` | 53 | MCP Server Core |
+| `Style` | `backend_app_models_style` | 50 | MCP Server Core |
 
 ---
 
 ## Executive Summary
 
-SpriteGameGen is organized around a **filesystem-backed `ProjectStore`** as the persistence hub and **FastAPI dependency injection** (`get_store`, `get_gemini_client`) as the wiring layer. Every major API route — generate, animate, export, frame edit/delete — reads and writes projects through `ProjectStore`. That architectural choice makes `ProjectStore` the graph's highest-betweenness bridge (0.109), connecting config/deps, all route handlers, domain models, and test fixtures.
+SpriteGameGen’s knowledge graph is a **hub-and-spoke** architecture:
 
-Three cross-cutting error/type nodes — `EmptyImageError`, `RegenerateFrameRequest`, and the Gemini/Style cluster — sit at the boundaries between the **deterministic image pipeline** (trim, pixelate, pack) and the **AI + API layers**. Most INFERRED edges are **directionally correct at the module/route level** but **over-connect at the Pydantic model level** (e.g. `DeleteFrameRequest` linked to `Style` even though the request body has no `style` field).
+1. **`ProjectStore`** is the filesystem persistence hub (highest betweenness). HTTP routes inject it via `get_store()`; MCP constructs it inside `_default_service()`.
+2. **`SpriteService`** is the framework-neutral application boundary. FastAPI routes and the MCP stdio server both call into it; it owns store + image provider + prompt enhancer.
+3. **`GeminiClient`** is the Vertex AI image/prompt adapter, wired through deps and consumed by animate/generate routes and live-validation scripts.
+4. **`ViewMode` / `Style`** are small domain enums that the AST/LLM merge **over-connects** with INFERRED `uses` edges to MCP DTOs, error types, and test fakes. The *architectural* story (they parameterize generation/animation) is real; many pairwise INFERRED edges are **not** direct code relationships.
+
+**Overall verdict on INFERRED hubs:**
+
+| Node | EXTRACTED | INFERRED | Verdict |
+|------|-----------|----------|---------|
+| `ProjectStore` | 37 | 40 | Bridge is real; ~half of INFERRED edges are module-level correct, ~half are DTO/error over-links |
+| `SpriteService` | 22 | 46 | Bridge is real; route/MCP links correct; many model/error INFERRED edges are co-location inflation |
+| `ViewMode` | 6 | 47 | Real as camera enum; most INFERRED neighbors are **incorrect as direct edges** |
+| `Style` | 4 | 46 | Real as art-style enum; same over-connection pattern as `ViewMode` |
 
 ---
 
 ## Query 1 — Why does `ProjectStore` bridge so many communities?
 
-**Expanded tokens:** `project store config animate generate export frame manifest`
+**Original question:** Why does `ProjectStore` connect Projects API Routes to MCP Server Core, Deps And Settings, Animate Route Tests, Animate Routes, Stage1 Route Tests, Project Store Tests?
 
-**Graph finding:** `ProjectStore` has degree 34 — the highest in the graph. Shortest path to App Config: `ProjectStore ←references— get_store()` (1 hop, EXTRACTED).
+**Expanded tokens (from graph vocab):** `project store mcp deps settings animate routes frame`
+
+**Graph finding:** Degree **77**. Own community: **Projects API Routes**. Cross-community edges:
+
+| Target community | Edges | Mechanism |
+|------------------|------:|-----------|
+| MCP Server Core | 30 | `AppContext`, `_default_service()`, MCP* DTOs (mostly INFERRED `uses`) |
+| Deps And Settings | 11 | `get_store()`, `_default_store()` **EXTRACTED**; test helpers INFERRED |
+| Animate Routes | 4 | `animate()`, `regenerate_frame()`, `delete_frame()`, `generate()` **EXTRACTED** `references` |
+| Animate Route Tests | 2 | `FakeGemini`, `_make()` INFERRED |
+| Stage1 Route Tests | 2 | `app_and_store()` INFERRED |
+| Project Store Tests | 1 | `store()` fixture INFERRED |
+
+**Shortest paths:**
+
+- `ProjectStore ←references [EXTRACTED]— get_store()` (1 hop)
+- `ProjectStore ←references [EXTRACTED]— list_projects()` (1 hop)
+- `ProjectStore ←uses [INFERRED]— AppContext` (1 hop)
 
 ### Structural explanation
 
-`ProjectStore` is the **single persistence abstraction** for the entire app:
-
-| Community | Connection | Mechanism | Confidence |
-|-----------|------------|-----------|------------|
-| App Config and Deps | `_default_store()`, `get_store()` | `deps.py` constructs `ProjectStore(root=settings.projects_dir)` | EXTRACTED |
-| Generate Route API | `generate()` | `Depends(get_store)` — create project, save sprite, write manifest | EXTRACTED |
-| Animate Route API | `animate()`, `regenerate_frame()`, `delete_frame()` | All three inject `ProjectStore` via `get_store` | EXTRACTED |
-| Export Route Models | `export()` | Reads manifest + loads frame images from store | EXTRACTED |
-| Frame Domain Models | `Project`, `Frame` | Store serializes/deserializes `Project` manifest | EXTRACTED (store↔Project), INFERRED (store↔Frame) |
-| Project Manifest Model | `Project` | `read_manifest` / `write_manifest` operate on `Project` | EXTRACTED |
-| Animate/Export/Stage1 Tests | `app_and_store()`, `_make()`, `store()` | Tests override `get_store` with tmp-path `ProjectStore` | INFERRED |
-
-### Key path (Generate → Store → Manifest)
+`ProjectStore` is the **single persistence abstraction**:
 
 ```
-get_store() --references [EXTRACTED]--> ProjectStore
-generate() --references [EXTRACTED]--> ProjectStore
-generate() --calls--> store.create(), store.save_image(), store.write_manifest()
-ProjectStore --uses [INFERRED]--> Project (models.py)
+Settings.projects_dir
+        │
+        ▼
+_default_store() / get_store()     _default_service()  (MCP)
+        │                                 │
+        ▼                                 ▼
+   ProjectStore  ◄──────────────  SpriteService(store=...)
+        ▲
+        │ Depends(get_store)
+   generate / animate / export / projects / prompts / assets
 ```
 
 ### Source evidence
 
-- `backend/app/deps.py` L17–28: `_default_store()` returns `ProjectStore`
-- `backend/app/routes/generate.py` L37–38: injects both `GeminiClient` and `ProjectStore`
-- `backend/app/routes/animate.py` L45–46, L162–163, L238: all animate endpoints inject `ProjectStore`
-- `backend/app/routes/export.py` L27: export injects `ProjectStore`
-- `backend/app/storage/project_store.py` L16: imports `Project` from `app.models`
+- `backend/app/deps.py` L17–45: `_default_store()` → `ProjectStore(root=...)`; `get_store()` returns it
+- `backend/app/routes/projects.py`, `generate.py`, `animate.py`, `export.py`, `prompts.py`, `assets.py`: all inject `ProjectStore = Depends(get_store)`
+- `backend/app/mcp_server.py` L93–97: `_default_service()` builds `SpriteService(store=ProjectStore(settings.projects_dir), ...)`
+- `backend/app/services/sprite_service.py` L138: constructor requires `store: ProjectStore`
+- `backend/tests/test_project_store.py`: dedicated store fixture community
 
-**Verdict:** The bridge is **real and intentional**. `ProjectStore` is the filesystem spine connecting config → routes → domain → tests. The graph correctly surfaces the hub-and-spoke architecture from the design spec ("Filesystem Project Storage").
+**Verdict:** The bridge is **real and intentional**. EXTRACTED edges to deps + HTTP routes are trustworthy. The large MCP INFERRED fan-out (`MCPProjectSummary`, `MCPAnimationResult`, …) is **directionally right at the module level** (MCP uses the store via `SpriteService`) but **over-specific as pairwise `uses` edges** from each DTO to `ProjectStore`.
 
 ---
 
-## Query 2 — Why does `EmptyImageError` connect Image Trim to Frame Domain Models?
+## Query 2 — Why does `SpriteService` bridge MCP, routes, and deps?
 
-**Expanded tokens:** `empty image error trim frame domain`
+**Original question:** Why does `SpriteService` connect MCP Server Core to Animate Routes, Frame Edit Helpers, Deps And Settings, Projects API Routes?
 
-**Graph finding:** Shortest path `EmptyImageError ←uses— RegenerateFrameRequest —uses→ Frame` (2 hops, both INFERRED).
+**Expanded tokens:** `sprite service mcp animate frame deps project`
+
+**Graph finding:** Degree **68**. Own community: **MCP Server Core**. Cross-community:
+
+| Target community | Edges | Notes |
+|------------------|------:|-------|
+| Projects API Routes | 12 | Store + MCP workflow tests; mix EXTRACTED/INFERRED |
+| Animate Routes | 4 | `animate` / `regenerate_frame` / `delete_frame` / `generate` INFERRED `calls` |
+| Deps And Settings | 2 | `_default_service()` EXTRACTED; `enhance_prompt` INFERRED |
+| Frame Edit Helpers | 1 | `._edit_frame()` EXTRACTED `method` |
+
+**Shortest path:** `SpriteService ←uses [INFERRED]— AppContext` (1 hop) — `AppContext` is a dataclass holding `service: SpriteService` (`mcp_server.py` L88–90).
 
 ### Structural explanation
 
-`EmptyImageError` is defined in the trim pipeline (`backend/app/pipeline/trim.py` L15) and raised when an image has no opaque pixels. It connects to frame domain models **indirectly through the animate routes**, not through the `Frame` Pydantic model itself:
+`SpriteService` is the **application core** shared by two transports:
 
-1. **`animate()` batch path** (L85–90): After generating frames, `trim.shared_bbox()` may raise `EmptyImageError`. Caught → all frames marked `FrameStatus.FAILED` → persisted as `Frame` objects with `url=None`.
-2. **`regenerate_frame()` path** (L204): Catches `(GeminiError, SafetyBlockedError, EmptyImageError, DegenerateBBoxError)` → sets `FrameStatus.FAILED`.
+| Transport | How it gets a `SpriteService` | Evidence |
+|-----------|-------------------------------|----------|
+| HTTP (FastAPI) | Routes construct `SpriteService(store=..., gemini=...)` per request | `animate.py` L100+, `generate.py` L108+ |
+| MCP (stdio) | Lifespan yields `AppContext(service=...)` from `_default_service()` | `mcp_server.py` L93–121 |
 
-So the bridge is: **trim pipeline exception → route error handling → Frame status in manifest**.
+Methods like `.animate()`, `.generate_sprite()`, `.export_sheet()`, `._edit_frame()` are EXTRACTED from the class AST; route functions are linked INFERRED as callers.
 
-### EXTRACTED vs INFERRED
+### Source evidence
 
-| Edge | Status | Verdict |
-|------|--------|---------|
-| `content_bbox()` → raises `EmptyImageError` | EXTRACTED | Correct |
-| `shared_bbox()` → catches `EmptyImageError` | EXTRACTED | Correct |
-| `RegenerateFrameRequest` → uses `EmptyImageError` | INFERRED | **Correct at route level** — `regenerate_frame()` catches it |
-| `DeleteFrameRequest` → uses `EmptyImageError` | INFERRED | **Incorrect** — `delete_frame()` never references trim or this exception |
-| `Frame` → uses `EmptyImageError` | INFERRED | **Indirect only** — Frame model has no error field; connection is via route logic |
+- `backend/app/mcp_server.py` L1 docstring: “Local stdio MCP adapter over the framework-neutral SpriteService”
+- `backend/app/mcp_server.py` L88–107: `AppContext`, `_default_service()`, `_service(ctx)`
+- `backend/app/routes/animate.py` / `generate.py`: instantiate `SpriteService` with injected deps
+- `backend/app/services/sprite_service.py` L134+: class definition and public API
 
-**Verdict:** The cross-community link is **real for animate/regenerate flows** but **overstated for delete_frame and the Frame model**. The graph correctly identifies trim→frame coupling for partial-failure handling; one spurious edge to `DeleteFrameRequest` should be treated as noise.
-
----
-
-## Query 3 — Why does `RegenerateFrameRequest` span so many communities?
-
-**Expanded tokens:** `regenerate frame request gemini trim animate export`
-
-**Graph finding:** Shortest path to `GeminiClient`: `RegenerateFrameRequest —uses [INFERRED]→ GeminiClient` (1 hop).
-
-### What `RegenerateFrameRequest` actually is
-
-A minimal Pydantic body (`project_id`, `index`) at `animate.py` L126–134. The **cross-community span comes from its handler** `regenerate_frame()`, not from the request schema.
-
-### Handler dependency chain
-
-```
-RegenerateFrameRequest
-  └─ regenerate_frame() [animate.py L159]
-       ├─ ProjectStore (read manifest, load base/sibling frames, save result)
-       ├─ GeminiClient.edit() (AI frame generation)
-       ├─ background.remove() (pipeline)
-       ├─ trim.autocrop(), _fit_to_size() (trim pipeline)
-       ├─ pixelate.quantize() if project.style is Style.PIXEL
-       ├─ catches: GeminiError, SafetyBlockedError, EmptyImageError, DegenerateBBoxError
-       └─ returns: Frame (domain model)
-```
-
-### Community crossings
-
-| Community | Node | Role in regenerate flow |
-|-----------|------|-------------------------|
-| Frame Domain Models | `Frame`, `FrameStatus` | Return type + manifest update |
-| Gemini AI Client | `GeminiClient`, `GeminiError`, `SafetyBlockedError` | AI edit + error handling |
-| Image Trim Pipeline | `EmptyImageError`, `DegenerateBBoxError`, trim funcs | Post-process + failure detection |
-| App Config and Deps | `get_store`, `get_gemini_client` | DI wiring |
-| Domain Model Validation | `Style` (via `project.style`) | Pixel vs hires post-processing |
-| Animate Route API | `regenerate_frame()`, `animate.py` | Route container |
-
-**Verdict:** **Fully correct.** `RegenerateFrameRequest` is the HTTP entry point for the most cross-cutting operation in the codebase — single-frame regeneration touches AI, storage, trim, pixelate, and domain models in one handler. High betweenness (0.069) is expected.
+**Verdict:** The bridge is **architecturally correct**. Prefer EXTRACTED method/contains edges and the `AppContext → SpriteService` composition. Treat INFERRED `calls` from route names and MCP DTO `uses` edges as **approximate**, not AST-proven call graphs.
 
 ---
 
-## Query 4 — Are `ProjectStore`'s 11 INFERRED edges correct?
+## Query 3 — Why does `GeminiClient` bridge Gemini Client to routes, MCP, deps, and live validation?
 
-| Edge | Verdict | Notes |
-|------|---------|-------|
-| `ProjectStore` → uses `Project` | ✅ Correct | Direct import in `project_store.py` |
-| `RegenerateFrameRequest` → uses `ProjectStore` | ✅ Correct | `Depends(get_store)` in `regenerate_frame()` |
-| `DeleteFrameRequest` → uses `ProjectStore` | ✅ Correct | `Depends(get_store)` in `delete_frame()` |
-| `ExportRequest` → uses `ProjectStore` | ✅ Correct | `Depends(get_store)` in `export()` |
-| `app_and_store()` → calls `ProjectStore` | ✅ Correct | Test fixture constructs `ProjectStore(tmp_path)` |
-| `store()` → calls `ProjectStore` | ✅ Correct | `test_project_store.py` fixture |
-| `_make()` → calls `ProjectStore` | ✅ Correct | `test_routes_animate.py` helper |
-| `FakeGemini` → uses `ProjectStore` (×3) | ⚠️ Indirect | Co-occurrence in test helpers; FakeGemini doesn't call store directly |
+**Original question:** Why does `GeminiClient` connect Gemini Client to Animate Routes, MCP Server Core, Deps And Settings, Config And Live Validation?
 
-**Summary:** 8/11 clearly correct; 3 are test-fixture co-occurrence (harmless, not structural calls).
+**Expanded tokens:** `gemini client animate mcp deps settings config`
 
----
+**Graph finding:** Degree **36** (18 EXTRACTED / 18 INFERRED). Cross-community:
 
-## Query 5 — Are `GeminiClient`'s 12 INFERRED edges correct?
+| Target community | Edges | Mechanism |
+|------------------|------:|-----------|
+| MCP Server Core | 8 | INFERRED `uses` to `Style`/`ViewMode`/`Direction` and request/error types |
+| Deps And Settings | 4 | `_default_gemini()`, `get_gemini_client()`, `build_default_client()` **EXTRACTED** |
+| Animate Routes | 3 | `animate()`, `regenerate_frame()`, `generate()` **EXTRACTED** `references` |
+| Config And Live Validation | 1 | `_wrapper()` in `validate_live_models.py` **EXTRACTED** |
 
-| Edge | Verdict | Notes |
-|------|---------|-------|
-| `GeminiClient` → uses `Style` | ✅ Correct | `generate(prompt, style: Style, ...)` in `gemini_client.py` L71 |
-| `RegenerateFrameRequest` → uses `GeminiClient` | ✅ Correct | Route injects client |
-| `DeleteFrameRequest` → uses `GeminiClient` | ❌ Incorrect | `delete_frame()` has no Gemini dependency |
-| `_Candidate`, `_Content`, `FakeSDK`, etc. → uses `GeminiClient` | ⚠️ Test-only | Test doubles in `test_gemini_client.py`; not production edges |
-| `_make_client()` → calls `GeminiClient` | ✅ Correct | Test helper |
+**Shortest paths:**
 
-**Summary:** 4/12 are production-correct; 1 is wrong (`DeleteFrameRequest`); 7 are test-module co-occurrence.
+- `GeminiClient ←references [EXTRACTED]— get_gemini_client()` (1 hop)
+- `GeminiClient ←references [EXTRACTED]— _wrapper() → Settings` (2 hops)
 
----
-
-## Query 6 — Are `Style`'s 16 INFERRED edges correct?
-
-| Edge | Verdict | Notes |
-|------|---------|-------|
-| `GeminiClient` → uses `Style` | ✅ Correct | Typed parameter on `generate()` |
-| `DeleteFrameRequest` → uses `Style` | ❌ Incorrect | Request model has no style field |
-| `RegenerateFrameRequest` → uses `Style` | ⚠️ Indirect | Style read from `project.style` in handler, not request body |
-| `GeminiError`, `GeminiTimeoutError`, `SafetyBlockedError` → uses `Style` | ❌ Incorrect | Exception classes don't reference Style |
-| Test fakes → uses `Style` | ⚠️ Partial | `FakeGemini.generate()` accepts style param |
-| `test_style_enum_values()` → calls `Style` | ✅ Correct | Direct enum test |
-
-**Summary:** 2 clearly correct; 3 indirect/plausible; 11 are over-connected via route-module co-location or test co-occurrence.
-
----
-
-## Query 7 — Are `GeminiError`'s 13 INFERRED edges correct?
-
-| Edge | Verdict | Notes |
-|------|---------|-------|
-| `GeminiError` → uses `Style` | ❌ Incorrect | Exception class has no Style dependency |
-| `RegenerateFrameRequest` → uses `GeminiError` | ✅ Correct | Caught in `regenerate_frame()` L204 |
-| `DeleteFrameRequest` → uses `GeminiError` | ❌ Incorrect | Not referenced in delete handler |
-| Test fakes → uses `GeminiError` | ⚠️ Test-only | `FakeGemini.edit()` raises `GeminiError`; test co-occurrence |
-| `GeminiError` inheritance chain | ✅ EXTRACTED | `GeminiTimeoutError`, `SafetyBlockedError` subclass it |
-
-**Summary:** 2 production-correct; 2 incorrect spurious links; 9 test/co-location noise.
-
----
-
-## Architecture Insights
-
-### 1. Hub-and-spoke persistence
-Everything flows through `ProjectStore` + DI. This matches the design spec's "Filesystem Project Storage" and "Seam Dependency Injection" decisions (Community 6 — Design Spec and Plan).
-
-### 2. Two-stage pipeline with shared post-processing
-Generate (Stage 1) and Animate (Stage 2) share: `GeminiClient` → `background.remove` → `trim` → optional `pixelate.quantize`. The graph's "Deterministic Python Pipeline ↔ Pipeline Layer" surprising connection (README ↔ spec) reflects this.
-
-### 3. Partial-failure tolerance creates cross-layer edges
-The spec's "Partial Animation Failure Tolerance" decision manifests as exception-handling edges from trim (`EmptyImageError`) and Gemini (`GeminiError`, `SafetyBlockedError`) into `FrameStatus.FAILED`. This is why error types bridge pipeline and domain communities.
-
-### 4. INFERRED edge quality
-INFERRED edges are **strongest at route/handler level** (correct DI, catch blocks, imports) and **weakest at request-model level** (linking `DeleteFrameRequest` to `Style`, `GeminiError`, `EmptyImageError` because they share `animate.py`).
-
----
-
-## Graph Health Caveat
-
-Build reported 179 dangling-endpoint edges. These do not affect the bridge-node analysis above (all cited nodes exist in source), but indicate some AST-extracted symbol references couldn't be resolved. Treat peripheral `calls`/`references` edges with lower confidence.
-
----
-
-## Recommendations
-
-1. **Trust EXTRACTED edges** for navigation; treat INFERRED edges on Pydantic request models as hints, not facts.
-2. **Start exploration from god nodes:** `ProjectStore` → routes → pipeline → `GeminiClient`.
-3. **For frame lifecycle questions**, trace through `animate.py` handlers rather than `RegenerateFrameRequest` / `DeleteFrameRequest` nodes alone.
-4. **Re-run with `--directed`** if you need call-direction clarity (caller → callee).
-5. **Set `GEMINI_API_KEY`** and re-run semantic extraction on docs for richer design-spec ↔ code linking.
-
----
-
-## Follow-up Traces (sequential)
-
-### Follow-up 1 — `generate` → `export` (Stage 1 sprite to sprite sheet)
-
-**Query:** `graphify path "generate" "export"`
-
-**Graph shortest path (2 hops):**
-```
-generate() --references [EXTRACTED]--> ProjectStore <--references [EXTRACTED]-- export()
-```
-
-The graph finds the **storage hub** only. The full user/data pipeline is longer:
+### Structural explanation
 
 ```
-POST /generate                    POST /animate (optional)              POST /export
-─────────────────                 ────────────────────────              ──────────────
-gemini.generate()                 gemini.edit() × N frames              read manifest
-  → background.remove               → background.remove                     filter FrameStatus.OK
-  → trim.autocrop                   → shared_bbox + align_to_bbox         load frame PNGs
-  → pixelate (if PIXEL)             → pixelate (if PIXEL)                 packer.pack()
-store.create()                    store.save_image(frame_i)             atlas.write_atlas()
-store.save_image("sprite")        store.write_manifest()                store.save_image("sprite_sheet")
-store.write_manifest()                                                  store.write_text(atlas)
-  frames: [Frame(0, ok)]            frames: [Frame(0..N, ok|failed)]      skips failed frames
-```
-
-**Extended graph paths:**
-- `generate → animate`: 2 hops via `ProjectStore`
-- `animate → export`: 2 hops via `ProjectStore`
-
-**Source evidence:**
-- `generate.py` L79–89: creates project, saves `sprite.png`, writes manifest with single `Frame(index=0)`
-- `test_export_multi.py` L60–68: integration test calls `/generate` → `/animate` → `/export`
-- `export.py` L33–40: loads only `FrameStatus.OK` frames; Stage 1 single-frame projects use `"sprite"` filename, multi-frame use `"frame_{index}"`
-
-**Stage 1-only export:** A project that never ran `/animate` still exports — one frame, name `"sprite"`. Multi-frame export requires `/animate` first.
-
-**Verdict:** Graph correctly identifies `ProjectStore` as the join point; the operational pipeline is **generate → (animate) → export** with manifest + PNG assets as the handoff contract.
-
----
-
-### Follow-up 2 — `FakeGemini` and test DI vs production
-
-**Query:** `graphify explain "FakeGemini"`
-
-**Graph node:** `backend/tests/test_export_multi.py` L19 (degree 6). Three separate `FakeGemini` classes exist in the repo (export_multi, routes_stage1, routes_animate) — graphify indexed one; all follow the same pattern.
-
-**Production wiring (`deps.py`):**
-```python
-def get_store() -> ProjectStore:        return _default_store()
-def get_gemini_client() -> GeminiClient: return _default_gemini()
-```
-
-**Test wiring (all three test modules):**
-```python
-app = create_app(remover=_fake_remover)
-app.dependency_overrides[get_store] = lambda: store          # tmp_path ProjectStore
-app.dependency_overrides[get_gemini_client] = lambda: fake   # FakeGemini instance
-```
-
-| Concern | Production | Test (FakeGemini) |
-|---------|------------|-------------------|
-| Store | Real `ProjectStore(projects_dir)` | `ProjectStore(tmp_path)` |
-| AI client | `GeminiClient` (Vertex/Gemini SDK) | `FakeGemini` — returns synthetic RGBA sprites |
-| Background removal | `rembg` (lazy) | `_fake_remover` — green-screen key |
-| Network | Real API calls | Zero network |
-| Failure injection | Real Gemini errors | `fail_on={indices}` in `test_routes_animate.py` |
-
-**FakeGemini interface contract** (must match `GeminiClient` surface):
-- `generate(prompt, style, reference=None) → Image` — used by `/generate`
-- `edit(base_img, prompt) → Image` — used by `/animate`, `/animate/frame`
-
-**Per-test-file specialization:**
-| File | FakeGemini behavior |
-|------|---------------------|
-| `test_routes_stage1.py` | `generate()` only; `edit()` raises `NotImplementedError` |
-| `test_routes_animate.py` | Both methods; `fail_on` set simulates `GeminiError` per frame index |
-| `test_export_multi.py` | Both methods; always succeeds (end-to-end export test) |
-
-**Verdict:** Tests mirror production **exactly at the DI seam** — same route handlers, same `ProjectStore` API, swapped implementations. The graph's INFERRED `FakeGemini → ProjectStore` edge reflects fixture co-location, not a direct call; the real link is `app.dependency_overrides[get_store]`.
-
----
-
-### Follow-up 3 — Partial failure and `FrameStatus`
-
-**Query:** `graphify query "partial failure frame status"` (90 nodes)
-
-**Graph anchors:** `Frame`, `FrameStatus`, `Partial Animation Failure Tolerance` (design doc, Community 6)
-
-**Design → code chain:**
-
-| Layer | Artifact | Role |
-|-------|----------|------|
-| Spec/plan | `Partial Animation Failure Tolerance` | One bad frame must not abort the batch |
-| Spec/plan | `Regenerate-Per-Frame Escape Hatch` | Recovery path for failed frames |
-| Domain | `FrameStatus` enum (`ok` \| `failed`) | Persisted per frame in manifest |
-| Domain | `Frame.url: str \| None` | `None` when failed |
-| Route | `animate()` L71–77, L111 | Catch `GeminiError`/`SafetyBlockedError` per frame → `FAILED` |
-| Route | `animate()` L88–90 | Catch `EmptyImageError`/`DegenerateBBoxError` on shared bbox → all fail |
-| Route | `regenerate_frame()` L204–216 | Single-frame retry; same catch set |
-| Route | `export()` L33 | **Only exports `FrameStatus.OK`** — failed frames excluded from sheet |
-| Frontend | `FrameStrip.tsx` L51–55 | Placeholder + regenerate button for `status === "failed"` |
-| Frontend | `AnimationPlayer.tsx` L18 | Playback filters `status === "ok" && url` |
-| Tests | `test_animate_partial_failure_marks_frame_failed` | 1 of 4 frames fails; other 3 OK |
-| Tests | `test_regenerate_failed_frame_recovers_it` | Failed frame → regenerate → `ok` |
-
-**Failure flow (batch animate):**
-```
-for each frame index:
-  try: gemini.edit → background.remove
-  except GeminiError, SafetyBlockedError: mark index failed, continue
-
-shared_bbox( successful frames ):
-  try: align all to common box
-  except EmptyImageError, DegenerateBBoxError: mark ALL successful indices failed
-
-persist: Frame(index, url=None, status=FAILED) for failures
-         Frame(index, url=/projects/.../frame_N.png, status=OK) for successes
-```
-
-**Export interaction:** If all frames fail → `export()` returns 422 `"project has no usable frames"`. Partial failure → sheet contains OK frames only; atlas frame count matches OK count.
-
-**Verdict:** Partial failure is **fully implemented end-to-end** — spec concept → Pydantic model → route catch blocks → manifest persistence → UI placeholder → export filter → dedicated tests. The graph links design doc nodes to `RegenerateFrameRequest` and `FrameStatus` through semantic extraction; runtime coupling is through `animate.py` exception handling.
-
----
-
-## Frontend Path Trace — GeneratePanel → AnimatePanel → ExportPanel
-
-**Graph hub:** `useProjectStore` (degree 12, Community 1 — Frontend API Client) mirrors backend `ProjectStore` as the shared-state spine. `client.ts` (degree 27) is the typed fetch layer.
-
-### Layout shell (`App.tsx`)
-
-All three panels are **siblings** — no direct panel-to-panel calls:
-
-```
-App.tsx
-  ├── GeneratePanel()     "1. Generate"
-  ├── AnimatePanel()      "2. Animate"
-  └── ExportPanel()       "3. Export"
-```
-
-**Graph paths between panels:**
-| Path | Hops | Via |
-|------|------|-----|
-| GeneratePanel → AnimatePanel | 2 | `App.tsx` imports both |
-| GeneratePanel → ExportPanel | 2 | `App.tsx` imports both |
-| AnimatePanel → ExportPanel | 2 | `useProjectStore` (shared state) |
-
-Runtime coupling is **state + API**, not component hierarchy.
-
-### Shared state (`useProjectStore` — Zustand)
-
-| Field | Set by | Cleared by |
-|-------|--------|------------|
-| `projectId`, `spriteUrl` | `setGenerated()` (GeneratePanel) | `reset()` |
-| `style` | `setStyle()` (GeneratePanel radio) | — |
-| `action`, `fps`, `frames` | `setAnimation()` (AnimatePanel, FrameStrip delete) | `setGenerated()` |
-| `exportResult` | `setExport()` (ExportPanel) | `setGenerated()`, `setAnimation()` |
-| single `frame` update | `setFrame()` (FrameStrip regenerate) | — |
-
-**State lifecycle:**
-```
-[empty] ──generate──► projectId + spriteUrl
-         ──animate──► + action, fps, frames[]     (clears exportResult)
-         ──regenerate frame──► patches frames[i]
-         ──export──► + exportResult               (sheet_url, atlas_url)
-```
-
-### Step 1 — GeneratePanel
-
-**Graph:** `GeneratePanel() --calls--> useProjectStore`; imports `generate` from `client.ts`
-
-**Flow:**
-```
-User prompt + style + optional reference file
-  → generate(prompt, style, reference)     POST /generate (multipart FormData)
-  → setGenerated(project_id, sprite_url)   stores id + preview URL
-  → renders <img src={spriteUrl}>
-```
-
-**Gating:** None — always available.
-
-**Backend handoff:** Creates project on server; frontend only stores `project_id` and relative `sprite_url`.
-
----
-
-### Step 2 — AnimatePanel (+ sub-components)
-
-**Graph:** `AnimatePanel() --calls--> useProjectStore`; imports `animate`, `listPresets` from `client.ts`
-
-**On mount:**
-```
-listPresets()  →  GET /presets  →  populates action dropdown
-```
-
-**On "Generate animation":**
-```
-requires projectId (hint shown if missing)
-  → animate(projectId, action, { frames })   POST /animate (JSON)
-  → setAnimation(action, fps, frames)          clears exportResult
-  → currentAction set → renders AnimationPlayer + FrameStrip
-```
-
-**Sub-components (only after successful animate):**
-
-| Component | Role | API calls |
-|-----------|------|-----------|
-| `AnimationPlayer` | Canvas loop of OK frames at configurable FPS | none (reads `frames`, `fps` from store) |
-| `FrameStrip` | Thumbnails + per-frame regenerate/delete | `regenerateFrame()`, `deleteFrame()` |
-
-**AnimationPlayer filtering:**
-```typescript
-frames.filter(f => f.status === "ok" && f.url)  // skips failed frames in preview
-```
-
-**FrameStrip partial-failure UI:**
-- `status === "ok"` → thumbnail image
-- `status === "failed"` → placeholder + Regenerate button
-- Regenerate → `POST /animate/frame` → `setFrame(frame)` (single frame patch)
-- Delete → `DELETE /animate/frame` → `setAnimation(...)` (full frame list refresh)
-
-**Graph:** `AnimationPlayer ← AnimatePanel ← FrameStrip` (AnimatePanel imports both)
-
----
-
-### Step 3 — ExportPanel
-
-**Graph:** `ExportPanel() --calls--> useProjectStore`; imports `exportProject` from `client.ts`
-
-**Flow:**
-```
-requires projectId (hint shown if missing)
-  → exportProject(projectId, format, { padding, cols })   POST /export (JSON)
-  → setExport({ sheet_url, atlas_url })
-  → download links for PNG sheet + JSON/XML atlas
-```
-
-**Gating:** Disabled when `!projectId`. Does **not** require animate — a Stage-1-only project (single sprite frame) can export immediately after generate.
-
----
-
-### End-to-end frontend → backend map
-
-```
-GeneratePanel          AnimatePanel              ExportPanel
-     │                      │                         │
-     ▼                      ▼                         ▼
- generate()            animate()               exportProject()
- listPresets()     regenerateFrame()                  │
-                   deleteFrame()                      │
-     │                      │                         │
-     ▼                      ▼                         ▼
- POST /generate        POST /animate              POST /export
-                       GET  /presets
-                       POST /animate/frame
-                       DELETE /animate/frame
-     │                      │                         │
-     └────────── useProjectStore (projectId) ──────────┘
-                           │
-                    backend ProjectStore
-```
-
-### Frontend design patterns
-
-1. **Zustand as DI mirror** — panels never pass props to each other; `useProjectStore` is the frontend equivalent of FastAPI `Depends(get_store)`.
-2. **client.ts as boundary** — all HTTP shaping + `ApiError` handling centralized; panels only catch and display errors.
-3. **Progressive disclosure** — animate preview/frame strip appear only after `setAnimation`; export links appear only after `setExport`.
-4. **Optimistic state resets** — new generate clears animation + export; new animate clears export (stale sheet links avoided).
-5. **Partial failure surfaced in FrameStrip** — backend `FrameStatus.failed` drives placeholder UI; regenerate closes the loop with spec §4 escape hatch.
-
-**Verdict:** The frontend path is a linear **Generate → Animate → Export** wizard with a shared Zustand store and a thin fetch client. Graph Community 1 ("Frontend API Client") correctly clusters `client.ts`, panels, and `useProjectStore`. The meaningful runtime path is **panel → client.ts API fn → backend route → useProjectStore update**, not panel-to-panel imports.
-
----
-
-## Shared-Bbox Anti-Jitter — Deep Dive
-
-**Graph hub:** `shared_bbox()` and `align_to_bbox()` in Community 3 ("Image Trim Pipeline"), degree 12 / linked pair.
-
-**Design spec (§4):** After all frames are generated, compute **one bounding box covering every frame** and trim them identically so the character does not jitter or resize between frames.
-
-### The problem
-
-Gemini edits each frame independently. Even with base-anchored editing, the opaque subject can land at slightly different positions/sizes per frame. If each frame is `autocrop()`'d individually (Stage 1 style), playback would show the sprite **shifting and scaling** frame-to-frame.
-
-### Two trim modes in this codebase
-
-| Function | Input | Output | Used where |
-|----------|-------|--------|------------|
-| `autocrop(img)` | single image | crop to *that* image's content bbox | `/generate` (Stage 1), `regenerate_frame` pre-fit |
-| `shared_bbox([imgs])` + `align_to_bbox([imgs], box)` | frame batch | all frames cropped to **same** box → identical dimensions | `/animate` batch (Stage 2) |
-
-### Algorithm (`trim.py`)
-
-**Step 1 — `content_bbox(img)`** — scan alpha channel; return `(left, top, right, bottom)` of opaque pixels. Raises `EmptyImageError` if fully transparent.
-
-**Step 2 — `shared_bbox(images)`** — union of all per-frame boxes:
-```
-left   = min(frame.left)
-top    = min(frame.top)
-right  = max(frame.right)
-bottom = max(frame.bottom)
-```
-Skips empty frames when computing union; raises `EmptyImageError` if none have content.
-
-**Step 3 — `align_to_bbox(images, box, padding)`** — crop **every** frame to the same `(left, top, right, bottom)`. All outputs share size `(right-left + 2×padding, bottom-top + 2×padding)`. Raises `DegenerateBBoxError` on zero-area box.
-
-**Unit test proof** (`test_trim.py`):
-- Three frames with blocks at different positions → shared box `(3, 2, 14, 12)`
-- After `align_to_bbox(..., padding=1)` → `len({img.size for img in aligned}) == 1`
-
-### Integration in `/animate` (`animate.py`)
-
-```
-Phase 1 (per frame, NO shared crop yet):
-  gemini.edit(base) → background.remove() → store in cut_by_index
-  (failures → failed set, skip)
-
-Phase 2 (batch anti-jitter — only successful frames):
-  ordered = [cut_by_index[i] for i in ok_indices]
-  box = trim.shared_bbox(ordered)
-  aligned = trim.align_to_bbox(ordered, box, padding=0)
-  except EmptyImageError, DegenerateBBoxError → mark all ok_indices failed
-
-Phase 3:
-  optional pixelate.quantize() per frame if Style.PIXEL
-  store.save_image(frame_N) — all OK frames now same pixel dimensions
-```
-
-**Why defer cropping to Phase 2:** You need all frames in memory before you can compute the union bbox. Cropping per-frame in Phase 1 would defeat anti-jitter.
-
-### Regenerate path — different but equivalent goal
-
-`regenerate_frame()` does **not** re-run `shared_bbox` on the whole batch. Instead:
-
-1. `trim.autocrop(cut)` — trim the new frame to its own content
-2. `_fit_to_size(cut, target_size)` — center on a transparent canvas matching a **sibling OK frame's size** (or base sprite trimmed size)
-
-This preserves the shared dimensions established at batch animate time without recomputing the union across all frames.
-
-### Test coverage
-
-| Test | Level | Asserts |
-|------|-------|---------|
-| `test_shared_bbox_covers_all_frames` | unit | Union bbox math |
-| `test_align_to_bbox_yields_identical_sizes` | unit | All outputs same size |
-| `test_animate_frames_share_identical_size_antijitter` | integration | All OK PNGs on disk have identical `.size` |
-| `test_regenerate_frame_replaces_single_frame` | integration | Regenerated frame matches sibling size |
-
-### Frontend playback coupling
-
-`AnimationPlayer` draws OK frames centered on a fixed canvas with `imageSmoothingEnabled = false`. Identical frame dimensions from shared-bbox alignment mean the character stays visually stable when `frameAt()` advances the loop.
-
-**Verdict:** Anti-jitter is a **pure, deterministic trim pipeline** (`shared_bbox` → `align_to_bbox`) invoked once per animate batch. It implements design spec decision #2 and is explicitly **not** used for Stage 1 single-sprite generate.
-
----
-
-## Vite Dev Proxy — Request Routing Map
-
-**Graph:** `vite.config.ts` (Community 2) proxies to backend; `main.py` mounts routers + CORS for `localhost:5173`.
-
-### Dev topology
-
-```
-Browser  http://localhost:5173
+Settings (Vertex auth)
     │
     ▼
-Vite dev server (:5173)
-    │  proxy table (prefix match)
-    ▼
-FastAPI uvicorn (:8000)
+build_default_client() / _default_gemini() / get_gemini_client()
     │
-    ▼
-ProjectStore (./projects/)
+    ├── HTTP routes (Depends) → SpriteService(gemini=...) / direct GeminiClient use
+    ├── MCP _default_service() → SpriteService(gemini=build_default_client())
+    └── scripts/validate_live_models.py (_wrapper, probes)
 ```
 
-Frontend `client.ts` uses **same-origin relative URLs** (`fetch("/generate", ...)`) — no hardcoded `:8000` in app code.
+### Source evidence
 
-### Proxy table (`frontend/vite.config.ts`)
+- `backend/app/deps.py` L22–50: `_default_gemini()`, `get_gemini_client()`
+- `backend/app/services/gemini_client.py` L64+, L295+: `GeminiClient`, `build_default_client()`
+- `backend/app/routes/animate.py` / `generate.py`: `gemini: GeminiClient = Depends(get_gemini_client)`
+- `backend/app/mcp_server.py` L96–97: `gemini=build_default_client()`
+- `scripts/validate_live_models.py`: live harness wraps settings + client
 
-| Vite proxy prefix | Target | Backend route(s) |
-|-------------------|--------|------------------|
-| `/generate` | `http://localhost:8000` | `POST /generate` (multipart) |
-| `/animate` | `http://localhost:8000` | `POST /animate`, `POST /animate/frame`, `DELETE /animate/frame` |
-| `/presets` | `http://localhost:8000` | `GET /presets` |
-| `/export` | `http://localhost:8000` | `POST /export` |
-| `/projects` | `http://localhost:8000` | `GET /projects`, `DELETE /projects/{id}`, `GET /projects/{id}/{filename}` |
-| `/health` | `http://localhost:8000` | `GET /health` |
+**Verdict:** The bridge is **real**. EXTRACTED wiring through deps and route references is solid. INFERRED edges from `GeminiClient` to MCP request DTOs (`RegenerateFrameRequest`, `DeleteFrameRequest`) are **weak** — those models live in animate routes and do not type-reference `GeminiClient`; the real link is route → client → edit/generate.
 
-**Prefix matching:** A request to `/projects/abc123/sprite.png` matches the `/projects` proxy rule and forwards to FastAPI `assets.get_asset`.
+---
 
-### Backend route registry (`main.py`)
+## Query 4 — Are the ~40 INFERRED relationships involving `ProjectStore` correct?
 
-```python
-app.include_router(generate.router)   # POST /generate
-app.include_router(animate.router)    # POST /animate, GET /presets, POST|DELETE /animate/frame
-app.include_router(export.router)     # POST /export
-app.include_router(projects.router)   # GET /projects, DELETE /projects/{id}
-app.include_router(assets.router)     # GET /projects/{id}/{filename}
-# + GET /health inline
-```
+**Examples called out by the report:** `AppContext`, `_default_service()`
 
-### Frontend API → proxy → backend (full map)
+**INFERRED neighbor set (35 unique labels):** includes service types (`SpriteService`, error hierarchy), MCP DTOs (`MCPAnimationResult`, …), route request models (`RegenerateFrameRequest`, `DeleteFrameRequest`, `ExportRequest`), test helpers (`app_and_store()`, `store()`, `FakeGemini`, `_make()`), and domain types (`Project`, `FrameStatus`, `ProjectHealth`).
 
-| `client.ts` function | HTTP | Proxied path | FastAPI handler |
-|----------------------|------|--------------|-----------------|
-| `generate()` | POST | `/generate` | `generate.generate` |
-| `listPresets()` | GET | `/presets` | `animate.presets` |
-| `animate()` | POST | `/animate` | `animate.animate` |
-| `regenerateFrame()` | POST | `/animate/frame` | `animate.regenerate_frame` |
-| `deleteFrame()` | DELETE | `/animate/frame` | `animate.delete_frame` |
-| `exportProject()` | POST | `/export` | `export.export` |
-| `listProjects()` | GET | `/projects` | `projects.list_projects` |
-| `deleteProject()` | DELETE | `/projects/{id}` | `projects.delete_project` |
-| `<img src={spriteUrl}>` | GET | `/projects/{id}/sprite.png` | `assets.get_asset` |
-| frame thumbnails | GET | `/projects/{id}/frame_N.png` | `assets.get_asset` |
-| export download links | GET | `/projects/{id}/sprite_sheet.png`, `sprite.json` | `assets.get_asset` |
+### Verdict table
 
-### CORS (belt-and-suspenders)
+| Neighbor | Graph claim | Source reality | Correct? |
+|----------|-------------|----------------|----------|
+| `_default_service()` | `calls`/`uses` | Constructs `ProjectStore(...)` then passes to `SpriteService` | **Yes** (composition) |
+| `AppContext` | `uses` | Holds `SpriteService`, not `ProjectStore` directly | **Indirect only** — edge overstates direct use |
+| `SpriteService` | `uses` | Constructor requires `store: ProjectStore` | **Yes** |
+| `Project` | `uses` | Store read/write manifest | **Yes** |
+| MCP* DTOs | `uses` | DTOs never import/call store; service does | **Module-level yes, pairwise no** |
+| `RegenerateFrameRequest` / `DeleteFrameRequest` / `ExportRequest` | `uses` | Request bodies; handlers inject store separately | **Route-level yes, type-level no** |
+| `SpriteServiceError` and subclasses | `uses` | Errors from service layer, not store | **Mostly no** as direct edges |
+| `app_and_store()` / `store()` | test helpers | Fixtures build/override store | **Yes** |
+| `FakeGemini` | `uses` | Unrelated to store | **No** |
 
-`main.py` also allows origins `http://localhost:5173` and `http://127.0.0.1:5173`. With the Vite proxy, browser requests are same-origin and CORS is not hit in normal dev. CORS matters if the frontend ever calls `:8000` directly.
+**Summary:** Roughly **~40% clearly correct**, **~35% correct only as “same feature flow”**, **~25% spurious** (errors, FakeGemini, DTO fan-out). The suggested question’s two examples: `_default_service()` **yes**; `AppContext` **only via `SpriteService`**.
 
-### Production note
+---
 
-The proxy exists **only in Vite dev**. Production build (`npm run build`) serves static assets; you must either:
-- serve the SPA behind a reverse proxy that forwards API paths to FastAPI, or
-- configure the built frontend to call an absolute API base URL (not currently in `client.ts` — dev assumes proxy).
+## Query 5 — Are the ~46 INFERRED relationships involving `SpriteService` correct?
 
-**Verdict:** Dev setup is **dual-process**: `uvicorn` on `:8000` + Vite on `:5173`. Six proxy prefixes cover every `client.ts` endpoint and all asset URLs returned in API responses. README documents this as "With both backend and frontend running, open http://localhost:5173."
+**Examples:** `AppContext`, `MCPAnimationResult`
+
+### Verdict table
+
+| Neighbor | Source reality | Correct? |
+|----------|----------------|----------|
+| `AppContext` | `service: SpriteService` field | **Yes** |
+| `ProjectStore` | Required constructor dep | **Yes** |
+| `ViewMode` / `Style` / `Direction` / `Frame` / `Project` | Used in inputs/results and method bodies | **Yes** |
+| `ImageProvider` / `PromptEnhancer` / provider errors | Constructor + method contracts | **Yes** |
+| `animate()` / `generate()` / `export()` route fns | Routes construct and call service | **Yes** (call-site; relation tag is INFERRED) |
+| `MCPAnimationResult` | Built from `AnimationResult` in MCP tools; does not reference `SpriteService` type | **Indirect** — tool handlers use service, DTO does not |
+| Other MCP* DTOs | Same pattern | **Indirect** |
+| `DeleteFrameRequest` / `RegenerateFrameRequest` | Route models; service methods take primitives/ids | **Route-level yes, type-level no** |
+| Named unit tests | Tests call service API | **Yes** as test→SUT |
+
+**Summary:** Core composition edges (`AppContext`, `ProjectStore`, domain enums, provider protocol) are **correct**. MCP DTO fan-out is the main inflation. Example `AppContext`: **correct**. Example `MCPAnimationResult`: **over-linked** (should be tool handler → service → `AnimationResult` → MCP DTO).
+
+---
+
+## Query 6 — Are the ~47 INFERRED relationships involving `ViewMode` correct?
+
+**Examples:** `AppContext`, `MCPAnimationResult`
+
+**EXTRACTED neighbors (trusted):** `models.py`, `Enum`, `str`, docstring, `directions_for()`, `validate_direction()`.
+
+**INFERRED neighbors (45):** heavy fan-out to MCP DTOs, `SpriteService`, `GeminiClient`, Azure/Gemini error types, test fakes (`FakeGemini`, `FakeSDK`, `_Part`, `_Response`, …), and service result dataclasses.
+
+### Verdict
+
+| Neighbor class | Correct as direct edge? | Why |
+|----------------|-------------------------|-----|
+| `SpriteService`, `GeminiClient`, `ImageProvider`, `AzureImageProvider`, `PromptEnhancer` | **Yes** | APIs take `view_mode: ViewMode` |
+| `GenerateSpriteInput` / `AnimationResult` fields | **Yes** | Dataclasses include `view_mode` |
+| `AppContext` | **No** | Only holds `SpriteService` |
+| `MCPAnimationResult` / other MCP* | **No / weak** | DTOs carry `Project` (which has `view_mode`), not a `ViewMode` field on every MCP type; `MCPProjectSummary` **does** expose `view_mode` — that one is closer to correct |
+| Gemini/Azure error types, Fake* helpers | **No** | Co-occurrence in files/tests, not type usage |
+| `_Candidate` / `_Content` / `_Part` | **No** | Test SDK stubs |
+
+**Summary:** Only a **small minority** of the 47 INFERRED edges are precise. The enum is a real cross-cutting parameter; the graph **massively over-attributes** it. Example edges to `AppContext` and generic `MCPAnimationResult`: **not directly correct**.
+
+---
+
+## Query 7 — Are the ~46 INFERRED relationships involving `Style` correct?
+
+**Caveat:** There are **7** nodes labeled `Style`. God-node / suggested-question stats refer to `backend_app_models_style` (degree 50: 4 EXTRACTED + 46 INFERRED). A low-degree duplicate (e.g. generate-route annotation node) can confuse naive `find`-by-label tools.
+
+**Pattern:** Nearly identical to `ViewMode`.
+
+| Neighbor class | Correct as direct edge? |
+|----------------|-------------------------|
+| `SpriteService`, `GeminiClient`, `ImageProvider`, `AzureImageProvider`, `PromptEnhancer`, `GenerateSpriteInput` | **Yes** — `style: Style` in APIs |
+| `AppContext` | **No** |
+| Most MCP* DTOs | **Weak** — via nested `Project.style`; `MCPProjectSummary.style` is the best MCP link |
+| Error types / Fake* / `_Part`… | **No** |
+| `test_style_enum_values()` | **Yes** as test coverage |
+
+**Path tool note:** `Style ←uses [INFERRED]— MCPAnimationResult` exists in the graph but is an **over-inference**; `MCPAnimationResult` only has `project: Project` and `frame_paths`.
+
+**Summary:** Same conclusion as Query 6 — **architectural role correct, pairwise INFERRED graph inflated**. Treat EXTRACTED enum definition edges as ground truth; treat INFERRED `uses` to unrelated errors/fakes as noise.
+
+---
+
+## Cross-cutting Findings
+
+### 1. Duplicate labels dilute queries
+`Style`×7 and `ViewMode`×9 mean BFS start-node selection and `graphify path` can attach to the wrong instance. Prefer canonical IDs when auditing.
+
+### 2. INFERRED `uses` ≈ “mentioned in the same feature”
+AST EXTRACTED edges (`contains`, `method`, `references` from deps/routes) are high trust. Semantic/INFERRED `uses` between types often mean “appear together in mcp_server.py / sprite_service.py,” not a real field/call.
+
+### 3. Two adapters, one core
+Hyperedge **Shared SpriteService HTTP and MCP Adapters** matches the code: FastAPI routes and FastMCP both sit on `SpriteService` + `ProjectStore`.
+
+### 4. Persistence spine
+Hyperedge / design theme **Filesystem Project Storage** is embodied by `ProjectStore` bridging deps → all mutating routes → tests.
+
+---
+
+## Suggested Follow-ups
+
+1. Trace `SpriteService._edit_frame` → pose reference → Gemini edit (Frame Edit Helpers community).
+2. Compare EXTRACTED vs INFERRED edge ratios after a `--mode deep` rebuild to see if DTO fan-out worsens.
+3. Deduplicate cross-language `Style`/`ViewMode` aliases (frontend `client.ts` vs backend `models.py`) with explicit `semantically_similar_to` instead of competing same-label nodes.
+
+---
+
+## Appendix A — Query expansion audit
+
+| # | Original focus | Vocab tokens used |
+|---|----------------|-------------------|
+| 1 | ProjectStore bridge | `project store mcp deps settings animate routes frame` |
+| 2 | SpriteService bridge | `sprite service mcp animate frame deps project` |
+| 3 | GeminiClient bridge | `gemini client animate mcp deps settings config` |
+| 4 | ProjectStore INFERRED | start nodes: `AppContext`, `_default_service()`, `store()` |
+| 5 | SpriteService INFERRED | start nodes: `AppContext`, `MCPAnimationResult`, `SpriteService` |
+| 6–7 | ViewMode / Style INFERRED | degree audit on canonical model nodes + source review |
+
+## Appendix B — Confidence mix for hubs
+
+| Node | Degree | EXTRACTED | INFERRED |
+|------|-------:|----------:|---------:|
+| ProjectStore | 77 | 37 | 40 |
+| SpriteService | 68 | 22 | 46 |
+| ViewMode (models) | 53 | 6 | 47 |
+| Style (models) | 50 | 4 | 46 |
+| GeminiClient | 36 | 18 | 18 |
+
+---
+
+*Report written from graph traversal + source verification. Do not treat INFERRED edges as proven call/import facts without checking `source_file` / `source_location`.*

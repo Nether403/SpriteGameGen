@@ -7,28 +7,75 @@ alongside the prompt.
 from __future__ import annotations
 
 import io
+import warnings
+from functools import partial
 
+import anyio
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from PIL import Image, UnidentifiedImageError
 
-from app.deps import get_azure_image_provider, get_gemini_client, get_store
-from app.models import Direction, ImageProviderName, Style, ViewMode, validate_direction
-from app.services.azure_image_provider import AzureImageProvider
-from app.services.gemini_client import GeminiClient
+from app.deps import get_provider_registry, get_store
+from app.models import (
+    Direction,
+    ImageProviderName,
+    MAX_IMAGE_DIMENSION,
+    MAX_IMAGE_PIXELS,
+    MAX_PROMPT_LENGTH,
+    Style,
+    ViewMode,
+    validate_direction,
+)
 from app.services.asset_urls import asset_url
 from app.services.sprite_service import (
     GenerateSpriteInput,
+    OperationControl,
     SafetyServiceError,
     SpriteService,
     UpstreamServiceError,
 )
 from app.services.provider_selection import (
+    ProviderRegistry,
     ProviderUnavailableError,
-    resolve_image_provider,
 )
 from app.storage.project_store import ProjectStore
 
 router = APIRouter()
+
+
+def _check_reference_size(image: Image.Image) -> None:
+    width, height = image.size
+    if (
+        width > MAX_IMAGE_DIMENSION
+        or height > MAX_IMAGE_DIMENSION
+        or width * height > MAX_IMAGE_PIXELS
+    ):
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                "reference image dimensions exceed the decoded image limit"
+            ),
+        )
+
+
+def _decode_reference(raw: bytes) -> Image.Image:
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", Image.DecompressionBombWarning)
+            with Image.open(io.BytesIO(raw)) as candidate:
+                _check_reference_size(candidate)
+                candidate.verify()
+            with Image.open(io.BytesIO(raw)) as candidate:
+                _check_reference_size(candidate)
+                candidate.load()
+                return candidate.convert("RGBA")
+    except HTTPException:
+        raise
+    except (Image.DecompressionBombError, Image.DecompressionBombWarning):
+        raise HTTPException(
+            status_code=413, detail="reference image exceeds the decoded image limit"
+        ) from None
+    except (UnidentifiedImageError, OSError, SyntaxError, ValueError):
+        raise HTTPException(status_code=422, detail="reference is not a valid image")
 
 
 def _parse_style(value: str) -> Style:
@@ -61,15 +108,14 @@ def _parse_camera(view_mode: str, direction: str) -> tuple[ViewMode, Direction]:
 @router.post("/generate")
 async def generate(
     request: Request,
-    prompt: str = Form(...),
+    prompt: str = Form(..., min_length=1, max_length=MAX_PROMPT_LENGTH),
     style: str = Form(...),
-    enhanced_prompt: str | None = Form(default=None),
+    enhanced_prompt: str | None = Form(default=None, max_length=MAX_PROMPT_LENGTH),
     view_mode: str = Form(default=ViewMode.SIDE_SCROLLER.value),
     direction: str = Form(default=Direction.LEFT.value),
     provider: str = Form(default=ImageProviderName.GEMINI.value),
     reference: UploadFile | None = File(default=None),
-    gemini: GeminiClient = Depends(get_gemini_client),
-    azure: AzureImageProvider | None = Depends(get_azure_image_provider),
+    providers: ProviderRegistry = Depends(get_provider_registry),
     store: ProjectStore = Depends(get_store),
 ):
     if not prompt.strip():
@@ -81,46 +127,49 @@ async def generate(
     except ValueError:
         raise HTTPException(status_code=422, detail=f"unknown provider: {provider!r}")
     try:
-        resolved = resolve_image_provider(provider_enum, gemini, azure)
+        resolved = providers.resolve(provider_enum)
     except ProviderUnavailableError as exc:
         raise HTTPException(status_code=503, detail=str(exc))
     accepted_prompt = enhanced_prompt.strip() if enhanced_prompt else None
-    if accepted_prompt is not None and len(accepted_prompt) > 2000:
-        raise HTTPException(
-            status_code=422, detail="enhanced prompt must be at most 2000 characters"
-        )
 
     ref_img: Image.Image | None = None
     if reference is not None:
-        raw = await reference.read()
         max_bytes = getattr(request.app.state, "max_upload_bytes", 10 * 1024 * 1024)
+        raw = await reference.read(max_bytes + 1)
         if len(raw) > max_bytes:
             raise HTTPException(
                 status_code=413,
                 detail=f"reference image exceeds {max_bytes} bytes",
             )
-        try:
-            ref_img = Image.open(io.BytesIO(raw)).convert("RGBA")
-        except UnidentifiedImageError:
-            raise HTTPException(status_code=422, detail="reference is not a valid image")
+        ref_img = _decode_reference(raw)
 
     try:
-        result = SpriteService(
+        service = SpriteService(
             store=store,
             image_provider=resolved.provider,
-            prompt_enhancer=gemini,
+            prompt_enhancer=providers.prompt_enhancer,
             provider_name=resolved.name,
             remover=getattr(request.app.state, "remover", None),
-        ).generate_sprite(
-            GenerateSpriteInput(
-                prompt=prompt,
-                enhanced_prompt=accepted_prompt,
-                style=style_enum,
-                view_mode=mode_enum,
-                direction=direction_enum,
-                reference=ref_img,
-            )
         )
+        operation = OperationControl()
+        result = await anyio.to_thread.run_sync(
+            partial(
+                service.generate_sprite,
+                control=operation,
+                request=GenerateSpriteInput(
+                    prompt=prompt,
+                    enhanced_prompt=accepted_prompt,
+                    style=style_enum,
+                    view_mode=mode_enum,
+                    direction=direction_enum,
+                    reference=ref_img,
+                ),
+            ),
+            abandon_on_cancel=True,
+        )
+    except anyio.get_cancelled_exc_class():
+        operation.cancel()
+        raise
     except SafetyServiceError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     except UpstreamServiceError as exc:

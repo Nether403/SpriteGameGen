@@ -9,9 +9,12 @@ import { frameAt } from "./playback";
 const CANVAS_SIZE = 240;
 
 export function AnimationPlayer() {
-  const { frames, fps, setAnimation, action } = useProjectStore();
+  const { frames, fps, projectId, action } = useProjectStore();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [playing, setPlaying] = useState(true);
+  const [previewFps, setPreviewFps] = useState(fps);
+
+  useEffect(() => setPreviewFps(fps), [projectId, action, fps]);
 
   // Only OK frames are playable; their urls drive the drawn images.
   const okUrls = frames
@@ -38,7 +41,7 @@ export function AnimationPlayer() {
     let start = 0;
     const draw = (now: number) => {
       if (start === 0) start = now;
-      const index = frameAt(now - start, fps, okUrls.length);
+      const index = frameAt(now - start, previewFps, okUrls.length);
       const img = imagesRef.current[index];
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       if (img && img.complete && img.naturalWidth > 0) {
@@ -56,13 +59,9 @@ export function AnimationPlayer() {
     };
     raf = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(raf);
-  }, [playing, fps, okUrls.length, okUrls.join("|")]);
+  }, [playing, previewFps, okUrls.length, okUrls.join("|")]);
 
   if (frames.length === 0) return null;
-
-  function onFps(next: number) {
-    if (action !== null) setAnimation(action, next, frames);
-  }
 
   return (
     <div className="animation-player">
@@ -76,22 +75,25 @@ export function AnimationPlayer() {
             width={CANVAS_SIZE}
             height={CANVAS_SIZE}
             className="sprite"
+            role="img"
             aria-label="Animation preview"
-          />
+          >
+            Animation preview. Use the frame thumbnails below if canvas is unavailable.
+          </canvas>
         </div>
       )}
       <div className="player-controls">
         <button type="button" onClick={() => setPlaying((p) => !p)}>
           {playing ? "Pause" : "Play"}
         </button>
-        <label htmlFor="fps">FPS: {fps}</label>
+        <label htmlFor="fps">Preview FPS: {previewFps}</label>
         <input
           id="fps"
           type="range"
           min={1}
           max={24}
-          value={fps}
-          onChange={(e) => onFps(Number(e.target.value))}
+          value={previewFps}
+          onChange={(e) => setPreviewFps(Number(e.target.value))}
         />
       </div>
     </div>

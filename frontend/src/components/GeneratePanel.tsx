@@ -1,8 +1,9 @@
 // Generate step: prompt input, optional reference upload, pixel/hires toggle.
-import { useEffect, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
 import {
   generate,
+  isAbortError,
   listAnimationOptions,
   type AnimationOptions,
   type Style,
@@ -15,6 +16,7 @@ import { ProviderSelector } from "./ProviderSelector";
 
 export function GeneratePanel() {
   const {
+    projectId,
     prompt,
     style,
     viewMode,
@@ -28,24 +30,48 @@ export function GeneratePanel() {
     setGenerated,
     spriteUrl,
     provider,
+    mutation,
+    beginMutation,
+    endMutation,
   } = useProjectStore();
   const [reference, setReference] = useState<File | null>(null);
   const [cameraOptions, setCameraOptions] = useState<AnimationOptions[]>([]);
   const [optionsError, setOptionsError] = useState<string | null>(null);
+  const [optionsAttempt, setOptionsAttempt] = useState(0);
+  const [optionsLoading, setOptionsLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const requestRef = useRef<AbortController | null>(null);
+  const styleGroupName = `style-${useId()}`;
+  const viewModeGroupName = `view-mode-${useId()}`;
 
   useEffect(() => {
-    listAnimationOptions()
+    const controller = new AbortController();
+    setOptionsLoading(true);
+    setOptionsError(null);
+    listAnimationOptions({ signal: controller.signal })
       .then(setCameraOptions)
-      .catch(() => setOptionsError("Could not load camera options."));
-  }, []);
+      .catch((reason) => {
+        if (!isAbortError(reason)) setOptionsError("Could not load camera options.");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setOptionsLoading(false);
+      });
+    return () => controller.abort();
+  }, [optionsAttempt]);
+
+  useEffect(() => () => requestRef.current?.abort(), []);
 
   async function onGenerate() {
     if (!prompt.trim()) {
       setError("Enter a prompt first.");
       return;
     }
+    const token = beginMutation("generate", projectId ?? null);
+    if (token === null) return;
+    const controller = new AbortController();
+    requestRef.current = controller;
+    const metadata = { enhancedPrompt, promptSource, style, viewMode, direction };
     setBusy(true);
     setError(null);
     try {
@@ -54,12 +80,15 @@ export function GeneratePanel() {
         direction,
         enhancedPrompt: promptSource === "enhanced" ? enhancedPrompt : null,
         provider,
+        signal: controller.signal,
       });
-      setGenerated(result.project_id, result.sprite_url, prompt.trim(), result.provider);
+      setGenerated(result.project_id, result.sprite_url, prompt.trim(), result.provider, metadata);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Generation failed.");
+      if (!isAbortError(e)) setError(e instanceof Error ? e.message : "Generation failed.");
     } finally {
+      requestRef.current = null;
       setBusy(false);
+      endMutation(token);
     }
   }
 
@@ -81,7 +110,7 @@ export function GeneratePanel() {
           <label key={s}>
             <input
               type="radio"
-              name="style"
+              name={styleGroupName}
               value={s}
               checked={style === s}
               onChange={() => setStyle(s)}
@@ -97,7 +126,7 @@ export function GeneratePanel() {
           <label key={option.view_mode}>
             <input
               type="radio"
-              name="view-mode"
+              name={viewModeGroupName}
               value={option.view_mode}
               checked={viewMode === option.view_mode}
               onChange={() => setViewMode(option.view_mode as ViewMode)}
@@ -115,11 +144,19 @@ export function GeneratePanel() {
         direction={direction}
         onChange={setDirection}
       />
-      {optionsError && <p className="error">{optionsError}</p>}
+      {optionsLoading && <p className="hint" role="status">Loading camera options…</p>}
+      {optionsError && (
+        <div className="metadata-error">
+          <p className="error" role="alert">{optionsError}</p>
+          <button type="button" className="secondary-button" onClick={() => setOptionsAttempt((value) => value + 1)}>
+            Retry camera options
+          </button>
+        </div>
+      )}
 
       <PromptEnhancer />
 
-      <ProviderSelector id="generate-image-provider" />
+      <ProviderSelector id="generate-image-provider" disabled={mutation !== null} />
 
       <label htmlFor="reference">Reference image (optional)</label>
       <input
@@ -129,11 +166,11 @@ export function GeneratePanel() {
         onChange={(e) => setReference(e.target.files?.[0] ?? null)}
       />
 
-      <button onClick={onGenerate} disabled={busy || cameraOptions.length === 0}>
+      <button onClick={onGenerate} disabled={busy || mutation !== null || cameraOptions.length === 0}>
         {busy ? "Generating…" : "Generate sprite"}
       </button>
 
-      {error && <p className="error">{error}</p>}
+      {error && <p className="error" role="alert">{error}</p>}
 
       {spriteUrl && (
         <div className="preview">
