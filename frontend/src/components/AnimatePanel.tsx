@@ -14,6 +14,7 @@ import { useProjectStore } from "../state/project";
 import { AnimationPlayer } from "./AnimationPlayer";
 import { DirectionControls, viewModeLabel } from "./DirectionControls";
 import { FrameStrip } from "./FrameStrip";
+import { ProviderSelector } from "./ProviderSelector";
 
 export function AnimatePanel() {
   const {
@@ -23,6 +24,7 @@ export function AnimatePanel() {
     setDirection,
     setAnimation,
     action: currentAction,
+    provider,
   } = useProjectStore();
   const [presets, setPresets] = useState<Preset[]>([]);
   const [cameraOptions, setCameraOptions] = useState<AnimationOptions[]>([]);
@@ -53,8 +55,15 @@ export function AnimatePanel() {
       const result = await animate(projectId, action, {
         frames: frames === "" ? null : frames,
         direction,
+        provider,
       });
-      setAnimation(result.action, result.fps, result.frames, result.direction);
+      setAnimation(
+        result.action,
+        result.fps,
+        result.frames,
+        result.direction,
+        result.provider,
+      );
     } catch (e) {
       setError(e instanceof Error ? e.message : "Animation failed.");
     } finally {
@@ -77,6 +86,8 @@ export function AnimatePanel() {
         direction={direction}
         onChange={setDirection}
       />
+
+      <ProviderSelector id="animate-image-provider" />
 
       <label htmlFor="action">Action</label>
       <select

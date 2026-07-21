@@ -6,6 +6,7 @@ import type {
   Direction,
   ExportResult,
   Frame,
+  ImageProviderName,
   ProjectDetail,
   PromptSource,
   Style,
@@ -22,6 +23,7 @@ interface ProjectState {
   style: Style;
   viewMode: ViewMode;
   direction: Direction;
+  provider: ImageProviderName;
   frames: Frame[];
   action: string | null;
   fps: number;
@@ -30,17 +32,24 @@ interface ProjectState {
   setStyle: (style: Style) => void;
   setViewMode: (viewMode: ViewMode) => void;
   setDirection: (direction: Direction) => void;
+  setProvider: (provider: ImageProviderName) => void;
   setPrompt: (prompt: string) => void;
   setEnhancedPrompt: (prompt: string) => void;
   acceptEnhancedPrompt: () => void;
   useRawPrompt: () => void;
-  setGenerated: (projectId: string, spriteUrl: string, prompt: string) => void;
+  setGenerated: (
+    projectId: string,
+    spriteUrl: string,
+    prompt: string,
+    provider?: ImageProviderName,
+  ) => void;
   loadProject: (project: ProjectDetail) => void;
   setAnimation: (
     action: string,
     fps: number,
     frames: Frame[],
     direction?: Direction,
+    provider?: ImageProviderName,
   ) => void;
   setFrame: (frame: Frame) => void;
   setExport: (result: ExportResult) => void;
@@ -63,6 +72,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
   style: "pixel",
   viewMode: "side_scroller",
   direction: "left",
+  provider: "auto",
   ...initialAnimation,
   exportResult: null,
 
@@ -77,6 +87,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
     }),
   setDirection: (direction) =>
     set({ direction, enhancedPrompt: null, promptSource: "raw" }),
+  setProvider: (provider) => set({ provider }),
   setPrompt: (prompt) =>
     set({ prompt, enhancedPrompt: null, promptSource: "raw" }),
   setEnhancedPrompt: (enhancedPrompt) =>
@@ -86,11 +97,12 @@ export const useProjectStore = create<ProjectState>((set) => ({
       promptSource: state.enhancedPrompt?.trim() ? "enhanced" : "raw",
     })),
   useRawPrompt: () => set({ enhancedPrompt: null, promptSource: "raw" }),
-  setGenerated: (projectId, spriteUrl, prompt) =>
+  setGenerated: (projectId, spriteUrl, prompt, provider) =>
     set((state) => ({
       projectId,
       prompt,
       spriteUrl,
+      provider: provider ?? state.provider,
       ...initialAnimation,
       exportResult: null,
       catalogRevision: state.catalogRevision + 1,
@@ -105,17 +117,19 @@ export const useProjectStore = create<ProjectState>((set) => ({
       style: project.style,
       viewMode: project.view_mode,
       direction: project.direction,
+      provider: project.image_provider ?? "gemini",
       frames: project.frames,
       action: project.action,
       fps: project.fps ?? 8,
       exportResult: null,
     }),
-  setAnimation: (action, fps, frames, direction) =>
+  setAnimation: (action, fps, frames, direction, provider) =>
     set((state) => ({
       action,
       fps,
       frames,
       direction: direction ?? state.direction,
+      provider: provider ?? state.provider,
       exportResult: null,
       catalogRevision: state.catalogRevision + 1,
     })),
@@ -136,6 +150,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
       style: "pixel",
       viewMode: "side_scroller",
       direction: "left",
+      provider: "auto",
       ...initialAnimation,
       exportResult: null,
       catalogRevision: state.catalogRevision + 1,

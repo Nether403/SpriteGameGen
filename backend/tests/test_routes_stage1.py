@@ -6,7 +6,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from PIL import Image
 
-from app.deps import get_gemini_client, get_store
+from app.deps import get_azure_image_provider, get_gemini_client, get_store
 from app.main import create_app
 from app.models import Direction, Style, ViewMode
 from app.storage.project_store import ProjectStore
@@ -83,6 +83,35 @@ async def test_generate_returns_project_and_sprite_url(client, app_and_store):
     sprite = store.load_image(body["project_id"], "sprite")
     assert sprite.mode == "RGBA"
     assert sprite.size == (20, 20)
+
+
+async def test_auto_provider_prefers_configured_azure(client, app_and_store):
+    app, store, gemini = app_and_store
+    azure = FakeGemini()
+    app.dependency_overrides[get_azure_image_provider] = lambda: azure
+
+    response = await client.post(
+        "/generate",
+        data={"prompt": "a knight", "style": "pixel", "provider": "auto"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["provider"] == "azure"
+    assert len(azure.generate_calls) == 1
+    assert gemini.generate_calls == []
+    project = store.read_manifest(response.json()["project_id"])
+    assert project.image_provider.value == "azure"
+
+
+async def test_hyperagent_selection_reports_experimental_unavailability(
+    client,
+):
+    response = await client.post(
+        "/generate",
+        data={"prompt": "a knight", "style": "pixel", "provider": "hyperagent"},
+    )
+    assert response.status_code == 503
+    assert "agent-mediated" in response.json()["detail"]
 
 
 async def test_generate_hires_skips_quantize(client, app_and_store):

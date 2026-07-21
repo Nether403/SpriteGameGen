@@ -9,7 +9,7 @@ import { deleteFrame, regenerateFrame } from "../api/client";
 import { useProjectStore } from "../state/project";
 
 export function FrameStrip() {
-  const { projectId, frames, setFrame, setAnimation, action } = useProjectStore();
+  const { projectId, frames, setFrame, setAnimation, action, provider } = useProjectStore();
   const [busyIndex, setBusyIndex] = useState<number | null>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -24,7 +24,7 @@ export function FrameStrip() {
     setBusyIndex(index);
     setError(null);
     try {
-      const frame = await regenerateFrame(projectId, index);
+      const frame = await regenerateFrame(projectId, index, provider);
       setFrame(frame);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Regenerate failed.");
@@ -56,7 +56,7 @@ export function FrameStrip() {
     for (const index of targets) {
       setBusyIndex(index);
       try {
-        const frame = await regenerateFrame(projectId, index);
+        const frame = await regenerateFrame(projectId, index, provider);
         setFrame(frame);
         if (frame.status === "failed") failures += 1;
       } catch {

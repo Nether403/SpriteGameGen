@@ -42,6 +42,15 @@ class Settings(BaseSettings):
     gemini_backoff_seconds: float = Field(default=1.0, gt=0, le=30)
     gemini_quota_backoff_seconds: float = Field(default=15.0, gt=0, le=120)
 
+    # --- Azure OpenAI GPT Image (optional; all three identity fields together) ---
+    azure_openai_endpoint: str = Field(default="")
+    azure_openai_api_key: str = Field(default="")
+    azure_openai_deployment: str = Field(default="")
+    azure_image_quality: str = Field(default="low", pattern="^(low|medium|high|auto)$")
+    azure_image_timeout_seconds: float = Field(default=180.0, gt=0, le=600)
+    azure_image_max_retries: int = Field(default=2, ge=1, le=5)
+    azure_image_max_concurrency: int = Field(default=3, ge=1, le=10)
+
     # --- Storage / limits ---
     projects_dir: str = Field(default="./projects")
     max_upload_bytes: int = Field(default=10 * 1024 * 1024)  # 10 MiB
@@ -61,6 +70,16 @@ class Settings(BaseSettings):
         if not self.google_cloud_project:
             raise ValueError(
                 "GOOGLE_CLOUD_PROJECT is not set. Vertex AI requires a GCP project ID."
+            )
+        azure_identity = (
+            self.azure_openai_endpoint,
+            self.azure_openai_api_key,
+            self.azure_openai_deployment,
+        )
+        if any(azure_identity) and not all(azure_identity):
+            raise ValueError(
+                "Azure image configuration is incomplete. Set AZURE_OPENAI_ENDPOINT, "
+                "AZURE_OPENAI_API_KEY, and AZURE_OPENAI_DEPLOYMENT together."
             )
         return self
 

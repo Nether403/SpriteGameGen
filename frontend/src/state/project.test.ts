@@ -9,6 +9,7 @@ const detail: ProjectDetail = {
   prompt: "a knight",
   enhanced_prompt: "a silver-armored knight",
   prompt_source: "enhanced",
+  image_provider: "azure",
   style: "hires",
   view_mode: "top_down_2_5d",
   direction: "up_left",
@@ -42,6 +43,7 @@ describe("project store", () => {
     expect(state.style).toBe("hires");
     expect(state.viewMode).toBe("top_down_2_5d");
     expect(state.direction).toBe("up_left");
+    expect(state.provider).toBe("azure");
     expect(state.spriteUrl).toContain("?v=2");
     expect(state.frames).toEqual(detail.frames);
     expect(state.exportResult).toBeNull();
@@ -61,6 +63,7 @@ describe("project store", () => {
       action: null,
       viewMode: "side_scroller",
       direction: "left",
+      provider: "auto",
     });
   });
 

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import { useProjectStore } from "../state/project";
@@ -7,10 +7,12 @@ import { GeneratePanel } from "./GeneratePanel";
 const generate = vi.fn();
 const enhancePrompt = vi.fn();
 const listAnimationOptions = vi.fn();
+const listImageProviders = vi.fn();
 vi.mock("../api/client", () => ({
   generate: (...args: unknown[]) => generate(...args),
   enhancePrompt: (...args: unknown[]) => enhancePrompt(...args),
   listAnimationOptions: () => listAnimationOptions(),
+  listImageProviders: () => listImageProviders(),
 }));
 
 const options = [
@@ -22,12 +24,51 @@ const options = [
     ],
   },
 ];
+const providers = [
+  {
+    id: "auto",
+    label: "Auto",
+    available: true,
+    experimental: false,
+    description: "Uses Azure when configured.",
+    unavailable_reason: null,
+  },
+  {
+    id: "azure",
+    label: "Azure GPT Image 2",
+    available: true,
+    experimental: false,
+    description: "Higher throughput.",
+    unavailable_reason: null,
+  },
+  {
+    id: "gemini",
+    label: "Gemini",
+    available: true,
+    experimental: false,
+    description: "Existing provider.",
+    unavailable_reason: null,
+  },
+  {
+    id: "hyperagent",
+    label: "Hyperagent Experimental",
+    available: false,
+    experimental: true,
+    description: "Evaluation only.",
+    unavailable_reason: "Not validated.",
+  },
+];
 
-afterEach(() => {
-  cleanup();
+beforeEach(() => {
   generate.mockReset();
   enhancePrompt.mockReset();
   listAnimationOptions.mockReset();
+  listImageProviders.mockReset();
+  listImageProviders.mockResolvedValue(providers);
+});
+
+afterEach(() => {
+  cleanup();
   useProjectStore.getState().reset();
 });
 
@@ -42,6 +83,9 @@ describe("GeneratePanel directions", () => {
 
     fireEvent.click(screen.getByRole("radio", { name: "Top-down / 2.5D" }));
     fireEvent.click(screen.getByRole("radio", { name: "Up-left" }));
+    fireEvent.change(screen.getByLabelText("Image provider"), {
+      target: { value: "azure" },
+    });
     fireEvent.change(screen.getByLabelText("Describe your sprite"), {
       target: { value: "a knight" },
     });
@@ -52,7 +96,12 @@ describe("GeneratePanel directions", () => {
       viewMode: "top_down_2_5d",
       direction: "up_left",
       enhancedPrompt: null,
+      provider: "azure",
     });
+    expect(
+      (screen.getByRole("option", { name: /Hyperagent Experimental/ }) as HTMLOptionElement)
+        .disabled,
+    ).toBe(true);
   });
 
   it("previews, edits, and explicitly accepts enhancement before generation", async () => {

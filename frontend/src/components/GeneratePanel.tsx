@@ -11,6 +11,7 @@ import {
 import { useProjectStore } from "../state/project";
 import { DirectionControls } from "./DirectionControls";
 import { PromptEnhancer } from "./PromptEnhancer";
+import { ProviderSelector } from "./ProviderSelector";
 
 export function GeneratePanel() {
   const {
@@ -26,6 +27,7 @@ export function GeneratePanel() {
     setDirection,
     setGenerated,
     spriteUrl,
+    provider,
   } = useProjectStore();
   const [reference, setReference] = useState<File | null>(null);
   const [cameraOptions, setCameraOptions] = useState<AnimationOptions[]>([]);
@@ -51,8 +53,9 @@ export function GeneratePanel() {
         viewMode,
         direction,
         enhancedPrompt: promptSource === "enhanced" ? enhancedPrompt : null,
+        provider,
       });
-      setGenerated(result.project_id, result.sprite_url, prompt.trim());
+      setGenerated(result.project_id, result.sprite_url, prompt.trim(), result.provider);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Generation failed.");
     } finally {
@@ -115,6 +118,8 @@ export function GeneratePanel() {
       {optionsError && <p className="error">{optionsError}</p>}
 
       <PromptEnhancer />
+
+      <ProviderSelector id="generate-image-provider" />
 
       <label htmlFor="reference">Reference image (optional)</label>
       <input

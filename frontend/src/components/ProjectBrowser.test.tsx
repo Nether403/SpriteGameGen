@@ -47,6 +47,7 @@ const detail: ProjectDetail = {
   prompt: "a knight",
   enhanced_prompt: null,
   prompt_source: "raw",
+  image_provider: "gemini",
   style: "pixel",
   view_mode: "side_scroller",
   direction: "left",

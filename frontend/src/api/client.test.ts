@@ -13,6 +13,7 @@ import {
   getProject,
   listPresets,
   listAnimationOptions,
+  listImageProviders,
   listProjects,
   regenerateFrame,
 } from "./client";
@@ -54,6 +55,7 @@ describe("generate", () => {
     expect(body.get("style")).toBe("pixel");
     expect(body.get("view_mode")).toBe("side_scroller");
     expect(body.get("direction")).toBe("left");
+    expect(body.get("provider")).toBe("auto");
     expect(body.get("reference")).toBeNull();
   });
 
@@ -66,11 +68,13 @@ describe("generate", () => {
     await generate("a knight", "pixel", null, {
       viewMode: "top_down_2_5d",
       direction: "up_left",
+      provider: "azure",
     });
 
     const body = fetchMock.mock.calls[0][1].body as FormData;
     expect(body.getAll("view_mode")).toEqual(["top_down_2_5d"]);
     expect(body.getAll("direction")).toEqual(["up_left"]);
+    expect(body.getAll("provider")).toEqual(["azure"]);
   });
 
   it("includes an accepted enhanced prompt only when supplied", async () => {
@@ -207,7 +211,12 @@ describe("animate", () => {
       json: async () => ({ project_id: "p1", action: "run", fps: 12, frames: [] }),
     });
 
-    await animate("p1", "run", { frames: 6, fps: 12, direction: "down_right" });
+    await animate("p1", "run", {
+      frames: 6,
+      fps: 12,
+      direction: "down_right",
+      provider: "azure",
+    });
 
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
       project_id: "p1",
@@ -215,6 +224,7 @@ describe("animate", () => {
       frames: 6,
       fps: 12,
       direction: "down_right",
+      provider: "azure",
     });
   });
 });
@@ -224,6 +234,14 @@ describe("animation options", () => {
     const fetchMock = mockFetch({ ok: true, json: async () => [] });
     await listAnimationOptions();
     expect(fetchMock.mock.calls[0][0]).toBe("/animation-options");
+  });
+});
+
+describe("image providers", () => {
+  it("GETs provider availability", async () => {
+    const fetchMock = mockFetch({ ok: true, json: async () => [] });
+    await listImageProviders();
+    expect(fetchMock.mock.calls[0][0]).toBe("/image-providers");
   });
 });
 

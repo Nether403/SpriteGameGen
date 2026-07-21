@@ -11,8 +11,9 @@ import io
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from PIL import Image, UnidentifiedImageError
 
-from app.deps import get_gemini_client, get_store
-from app.models import Direction, Style, ViewMode, validate_direction
+from app.deps import get_azure_image_provider, get_gemini_client, get_store
+from app.models import Direction, ImageProviderName, Style, ViewMode, validate_direction
+from app.services.azure_image_provider import AzureImageProvider
 from app.services.gemini_client import GeminiClient
 from app.services.asset_urls import asset_url
 from app.services.sprite_service import (
@@ -20,6 +21,10 @@ from app.services.sprite_service import (
     SafetyServiceError,
     SpriteService,
     UpstreamServiceError,
+)
+from app.services.provider_selection import (
+    ProviderUnavailableError,
+    resolve_image_provider,
 )
 from app.storage.project_store import ProjectStore
 
@@ -61,14 +66,24 @@ async def generate(
     enhanced_prompt: str | None = Form(default=None),
     view_mode: str = Form(default=ViewMode.SIDE_SCROLLER.value),
     direction: str = Form(default=Direction.LEFT.value),
+    provider: str = Form(default=ImageProviderName.GEMINI.value),
     reference: UploadFile | None = File(default=None),
     gemini: GeminiClient = Depends(get_gemini_client),
+    azure: AzureImageProvider | None = Depends(get_azure_image_provider),
     store: ProjectStore = Depends(get_store),
 ):
     if not prompt.strip():
         raise HTTPException(status_code=422, detail="prompt must not be empty")
     style_enum = _parse_style(style)
     mode_enum, direction_enum = _parse_camera(view_mode, direction)
+    try:
+        provider_enum = ImageProviderName(provider)
+    except ValueError:
+        raise HTTPException(status_code=422, detail=f"unknown provider: {provider!r}")
+    try:
+        resolved = resolve_image_provider(provider_enum, gemini, azure)
+    except ProviderUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
     accepted_prompt = enhanced_prompt.strip() if enhanced_prompt else None
     if accepted_prompt is not None and len(accepted_prompt) > 2000:
         raise HTTPException(
@@ -92,7 +107,9 @@ async def generate(
     try:
         result = SpriteService(
             store=store,
-            gemini=gemini,
+            image_provider=resolved.provider,
+            prompt_enhancer=gemini,
+            provider_name=resolved.name,
             remover=getattr(request.app.state, "remover", None),
         ).generate_sprite(
             GenerateSpriteInput(
@@ -113,4 +130,5 @@ async def generate(
         "project_id": result.project_id,
         "sprite_url": asset_url(result.project_id, result.sprite_filename),
         "prompt_source": result.project.prompt_source,
+        "provider": result.project.image_provider,
     }

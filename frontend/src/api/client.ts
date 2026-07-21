@@ -15,11 +15,13 @@ export type Direction =
 export type ExportFormat = "json" | "xml";
 export type FrameStatus = "ok" | "failed";
 export type PromptSource = "raw" | "enhanced";
+export type ImageProviderName = "auto" | "azure" | "gemini" | "hyperagent";
 
 export interface GenerateResult {
   project_id: string;
   sprite_url: string;
   prompt_source: PromptSource;
+  provider: ImageProviderName;
 }
 
 export interface ExportResult {
@@ -39,6 +41,7 @@ export interface Project {
   prompt: string;
   enhanced_prompt: string | null;
   prompt_source: PromptSource;
+  image_provider: ImageProviderName;
   style: Style;
   view_mode: ViewMode;
   direction: Direction;
@@ -107,6 +110,7 @@ export async function generate(
     viewMode?: ViewMode;
     direction?: Direction;
     enhancedPrompt?: string | null;
+    provider?: ImageProviderName;
   } = {},
 ): Promise<GenerateResult> {
   const form = new FormData();
@@ -114,6 +118,7 @@ export async function generate(
   form.append("style", style);
   form.append("view_mode", opts.viewMode ?? "side_scroller");
   form.append("direction", opts.direction ?? "left");
+  form.append("provider", opts.provider ?? "auto");
   if (opts.enhancedPrompt) form.append("enhanced_prompt", opts.enhancedPrompt);
   if (reference) form.append("reference", reference);
   const res = await fetch("/generate", { method: "POST", body: form });
@@ -169,6 +174,7 @@ export interface AnimateResult {
   view_mode: ViewMode;
   direction: Direction;
   frames: Frame[];
+  provider: ImageProviderName;
 }
 
 // POST /animate — expand the base sprite into an animation. `frames` omitted
@@ -176,7 +182,12 @@ export interface AnimateResult {
 export async function animate(
   projectId: string,
   action: string,
-  opts: { frames?: number | null; fps?: number; direction?: Direction } = {},
+  opts: {
+    frames?: number | null;
+    fps?: number;
+    direction?: Direction;
+    provider?: ImageProviderName;
+  } = {},
 ): Promise<AnimateResult> {
   const res = await fetch("/animate", {
     method: "POST",
@@ -187,6 +198,7 @@ export async function animate(
       frames: opts.frames ?? null,
       fps: opts.fps ?? 8,
       direction: opts.direction ?? "left",
+      ...(opts.provider ? { provider: opts.provider } : {}),
     }),
   });
   return unwrap<AnimateResult>(res);
@@ -196,11 +208,16 @@ export async function animate(
 export async function regenerateFrame(
   projectId: string,
   index: number,
+  provider?: ImageProviderName,
 ): Promise<Frame> {
   const res = await fetch("/animate/frame", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ project_id: projectId, index }),
+    body: JSON.stringify({
+      project_id: projectId,
+      index,
+      ...(provider ? { provider } : {}),
+    }),
   });
   return unwrap<Frame>(res);
 }
@@ -232,12 +249,25 @@ export interface AnimationOptions {
   directions: Direction[];
 }
 
+export interface ImageProviderOption {
+  id: ImageProviderName;
+  label: string;
+  available: boolean;
+  experimental: boolean;
+  description: string;
+  unavailable_reason: string | null;
+}
+
 export async function listPresets(): Promise<Preset[]> {
   return unwrap<Preset[]>(await fetch("/presets"));
 }
 
 export async function listAnimationOptions(): Promise<AnimationOptions[]> {
   return unwrap<AnimationOptions[]>(await fetch("/animation-options"));
+}
+
+export async function listImageProviders(): Promise<ImageProviderOption[]> {
+  return unwrap<ImageProviderOption[]>(await fetch("/image-providers"));
 }
 
 export async function listProjects(): Promise<ProjectSummary[]> {

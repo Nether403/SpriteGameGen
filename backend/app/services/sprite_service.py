@@ -19,6 +19,7 @@ from app.models import (
     EnhancePromptResult,
     Frame,
     FrameStatus,
+    ImageProviderName,
     ExportOptions,
     Project,
     ProjectHealth,
@@ -137,6 +138,7 @@ class SpriteService:
         store: ProjectStore,
         image_provider: ImageProvider | None = None,
         prompt_enhancer: PromptEnhancer | None = None,
+        provider_name: ImageProviderName = ImageProviderName.GEMINI,
         gemini=None,
         remover=None,
     ):
@@ -145,6 +147,7 @@ class SpriteService:
         # tests while callers migrate to the provider-neutral dependencies.
         self.image_provider = image_provider or gemini
         self.prompt_enhancer = prompt_enhancer or gemini
+        self.provider_name = provider_name
         self.remover = remover
 
     def enhance_prompt(self, request: EnhancePromptRequest) -> EnhancePromptResult:
@@ -217,6 +220,7 @@ class SpriteService:
             prompt_source=(
                 PromptSource.ENHANCED if accepted_prompt else PromptSource.RAW
             ),
+            image_provider=self.provider_name,
             style=request.style,
             view_mode=request.view_mode,
             direction=request.direction,
@@ -341,6 +345,7 @@ class SpriteService:
         project.action = request.action
         project.fps = request.fps
         project.direction = request.direction
+        project.image_provider = self.provider_name
         self.store.write_manifest(request.project_id, project)
         return AnimationResult(
             project_id=request.project_id,
@@ -416,6 +421,7 @@ class SpriteService:
             filename = f"{name}.png"
         frame = Frame(index=index, url=None, status=status)
         project.frames[index] = frame
+        project.image_provider = self.provider_name
         self.store.write_manifest(project_id, project)
         return FrameMutationResult(
             project_id=project_id,

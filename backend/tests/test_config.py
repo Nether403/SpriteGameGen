@@ -22,6 +22,13 @@ def _clear_env(monkeypatch, tmp_path):
         "GEMINI_MAX_RETRIES",
         "GEMINI_BACKOFF_SECONDS",
         "GEMINI_QUOTA_BACKOFF_SECONDS",
+        "AZURE_OPENAI_ENDPOINT",
+        "AZURE_OPENAI_API_KEY",
+        "AZURE_OPENAI_DEPLOYMENT",
+        "AZURE_IMAGE_QUALITY",
+        "AZURE_IMAGE_TIMEOUT_SECONDS",
+        "AZURE_IMAGE_MAX_RETRIES",
+        "AZURE_IMAGE_MAX_CONCURRENCY",
     ):
         monkeypatch.delenv(key, raising=False)
 
@@ -122,3 +129,27 @@ def test_get_settings_is_cached(monkeypatch, tmp_path):
     config = _fresh_config()
 
     assert config.get_settings() is config.get_settings()
+
+
+def test_reads_complete_optional_azure_image_configuration(monkeypatch, tmp_path):
+    _valid_env(monkeypatch, tmp_path)
+    monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://sprites.openai.azure.com")
+    monkeypatch.setenv("AZURE_OPENAI_API_KEY", "secret")
+    monkeypatch.setenv("AZURE_OPENAI_DEPLOYMENT", "gpt-image-2-2")
+    monkeypatch.setenv("AZURE_IMAGE_QUALITY", "medium")
+    monkeypatch.setenv("AZURE_IMAGE_MAX_CONCURRENCY", "3")
+    config = _fresh_config()
+
+    settings = config.get_settings()
+    assert settings.azure_openai_deployment == "gpt-image-2-2"
+    assert settings.azure_image_quality == "medium"
+    assert settings.azure_image_max_concurrency == 3
+
+
+def test_partial_azure_configuration_fails_loud(monkeypatch, tmp_path):
+    _valid_env(monkeypatch, tmp_path)
+    monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://sprites.openai.azure.com")
+    config = _fresh_config()
+
+    with pytest.raises(RuntimeError, match="Azure image configuration is incomplete"):
+        config.get_settings()

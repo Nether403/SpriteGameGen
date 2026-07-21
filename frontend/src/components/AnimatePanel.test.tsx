@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import { useProjectStore } from "../state/project";
@@ -7,17 +7,33 @@ import { AnimatePanel } from "./AnimatePanel";
 const animate = vi.fn();
 const listAnimationOptions = vi.fn();
 const listPresets = vi.fn();
+const listImageProviders = vi.fn();
 vi.mock("../api/client", () => ({
   animate: (...args: unknown[]) => animate(...args),
   listAnimationOptions: () => listAnimationOptions(),
   listPresets: () => listPresets(),
+  listImageProviders: () => listImageProviders(),
 }));
 
-afterEach(() => {
-  cleanup();
+beforeEach(() => {
   animate.mockReset();
   listAnimationOptions.mockReset();
   listPresets.mockReset();
+  listImageProviders.mockReset();
+  listImageProviders.mockResolvedValue([
+    {
+      id: "auto",
+      label: "Auto",
+      available: true,
+      experimental: false,
+      description: "Uses Azure when configured.",
+      unavailable_reason: null,
+    },
+  ]);
+});
+
+afterEach(() => {
+  cleanup();
   useProjectStore.getState().reset();
 });
 
@@ -56,6 +72,7 @@ describe("AnimatePanel directions", () => {
     expect(animate).toHaveBeenCalledWith("p1", "walk", {
       frames: null,
       direction: "up_left",
+      provider: "auto",
     });
     expect(useProjectStore.getState().direction).toBe("up_left");
   });

@@ -41,6 +41,13 @@ class PromptSource(str, Enum):
     ENHANCED = "enhanced"
 
 
+class ImageProviderName(str, Enum):
+    AUTO = "auto"
+    AZURE = "azure"
+    GEMINI = "gemini"
+    HYPERAGENT = "hyperagent"
+
+
 _DIRECTIONS_BY_VIEW: dict[ViewMode, tuple[Direction, ...]] = {
     ViewMode.SIDE_SCROLLER: (Direction.LEFT, Direction.RIGHT),
     ViewMode.TOP_DOWN_2_5D: tuple(Direction),
@@ -101,6 +108,7 @@ class Project(BaseModel):
     prompt: str
     enhanced_prompt: str | None = None
     prompt_source: PromptSource = PromptSource.RAW
+    image_provider: ImageProviderName = ImageProviderName.GEMINI
     style: Style
     view_mode: ViewMode = ViewMode.SIDE_SCROLLER
     direction: Direction = Direction.LEFT
@@ -169,6 +177,7 @@ class AnimateRequest(BaseModel):
     frames: int | None = Field(default=None, ge=2, le=8)
     fps: int = Field(default=8, ge=1, le=60)
     direction: Direction = Direction.LEFT
+    provider: ImageProviderName | None = None
 
 
 class EnhancePromptRequest(BaseModel):
