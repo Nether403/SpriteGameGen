@@ -30,7 +30,12 @@ from app.pipeline.background import BackgroundRemovalError
 from app.pipeline.pixelate import PixelateError
 from app.pipeline.trim import DegenerateBBoxError, EmptyImageError
 from app.services import pose_reference, prompt_builder
-from app.services.gemini_client import GeminiError, SafetyBlockedError
+from app.services.image_provider import (
+    ImageProvider,
+    ImageProviderError,
+    ImageSafetyBlockedError,
+    PromptEnhancer,
+)
 from app.storage.project_store import ProjectRecord, ProjectStore
 
 
@@ -125,24 +130,35 @@ class ExportSheetResult(BaseModel):
 
 
 class SpriteService:
-    def __init__(self, *, store: ProjectStore, gemini=None, remover=None):
+    def __init__(
+        self,
+        *,
+        store: ProjectStore,
+        image_provider: ImageProvider | None = None,
+        prompt_enhancer: PromptEnhancer | None = None,
+        gemini=None,
+        remover=None,
+    ):
         self.store = store
-        self.gemini = gemini
+        # ``gemini`` remains as a compatibility alias for existing adapters and
+        # tests while callers migrate to the provider-neutral dependencies.
+        self.image_provider = image_provider or gemini
+        self.prompt_enhancer = prompt_enhancer or gemini
         self.remover = remover
 
     def enhance_prompt(self, request: EnhancePromptRequest) -> EnhancePromptResult:
-        if self.gemini is None:
-            raise UpstreamServiceError("Gemini client is not configured")
+        if self.prompt_enhancer is None:
+            raise UpstreamServiceError("Prompt enhancer is not configured")
         try:
-            enhanced = self.gemini.enhance_prompt(
+            enhanced = self.prompt_enhancer.enhance_prompt(
                 request.prompt,
                 request.style,
                 request.view_mode,
                 request.direction,
             )
-        except SafetyBlockedError as exc:
+        except ImageSafetyBlockedError as exc:
             raise SafetyServiceError(str(exc)) from exc
-        except GeminiError as exc:
+        except ImageProviderError as exc:
             raise UpstreamServiceError(str(exc)) from exc
         return EnhancePromptResult(
             original_prompt=request.prompt,
@@ -150,8 +166,8 @@ class SpriteService:
         )
 
     def generate_sprite(self, request: GenerateSpriteInput) -> GenerateSpriteResult:
-        if self.gemini is None:
-            raise UpstreamServiceError("Gemini client is not configured")
+        if self.image_provider is None:
+            raise UpstreamServiceError("Image provider is not configured")
         if not request.prompt.strip():
             raise ValidationServiceError("prompt must not be empty")
         from app.models import validate_direction
@@ -165,16 +181,16 @@ class SpriteService:
         )
         effective_prompt = accepted_prompt or request.prompt.strip()
         try:
-            raw_image = self.gemini.generate(
+            raw_image = self.image_provider.generate(
                 effective_prompt,
                 request.style,
                 reference=request.reference,
                 view_mode=request.view_mode,
                 direction=request.direction,
             )
-        except SafetyBlockedError as exc:
+        except ImageSafetyBlockedError as exc:
             raise SafetyServiceError(str(exc)) from exc
-        except GeminiError as exc:
+        except ImageProviderError as exc:
             raise UpstreamServiceError(str(exc)) from exc
 
         try:
@@ -213,8 +229,8 @@ class SpriteService:
         )
 
     def animate(self, request: AnimateRequest) -> AnimationResult:
-        if self.gemini is None:
-            raise UpstreamServiceError("Gemini client is not configured")
+        if self.image_provider is None:
+            raise UpstreamServiceError("Image provider is not configured")
         try:
             preset = prompt_builder.get_preset(request.action)
         except KeyError as exc:
@@ -257,7 +273,11 @@ class SpriteService:
                 cut_by_index[index] = background.remove(
                     edited, remover=self.remover
                 )
-            except (GeminiError, SafetyBlockedError, BackgroundRemovalError):
+            except (
+                ImageProviderError,
+                ImageSafetyBlockedError,
+                BackgroundRemovalError,
+            ):
                 failed.add(index)
 
         ok_indices = sorted(cut_by_index)
@@ -311,8 +331,8 @@ class SpriteService:
         )
 
     def regenerate_frame(self, project_id: str, index: int) -> FrameMutationResult:
-        if self.gemini is None:
-            raise UpstreamServiceError("Gemini client is not configured")
+        if self.image_provider is None:
+            raise UpstreamServiceError("Image provider is not configured")
         project = self._read_project(project_id)
         if project.action is None:
             raise ValidationServiceError("project has not been animated")
@@ -357,8 +377,8 @@ class SpriteService:
                 sprite = pixelate.quantize(sprite)
             status = FrameStatus.OK
         except (
-            GeminiError,
-            SafetyBlockedError,
+            ImageProviderError,
+            ImageSafetyBlockedError,
             BackgroundRemovalError,
             PixelateError,
             EmptyImageError,
@@ -401,7 +421,7 @@ class SpriteService:
                 "its torso, hip, knee, ankle, foot, and arm positions, but never "
                 "copy its stick-figure style or colors."
             )
-        return self.gemini.edit(base, frame_prompt, pose_reference=guide)
+        return self.image_provider.edit(base, frame_prompt, pose_reference=guide)
 
     def delete_frame(self, project_id: str, index: int) -> AnimationResult:
         project = self._read_project(project_id)

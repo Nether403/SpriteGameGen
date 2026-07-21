@@ -18,6 +18,11 @@ from PIL import Image
 
 from app.config import get_settings
 from app.models import Direction, Style, ViewMode
+from app.services.image_provider import (
+    ImageProviderError,
+    ImageProviderTimeoutError,
+    ImageSafetyBlockedError,
+)
 from app.services.prompt_builder import build_generate_prompt
 
 # Substrings that mark a transient, retryable error from the SDK/transport.
@@ -29,15 +34,15 @@ _TRANSIENT_MARKERS = (
 _SAFETY_MARKERS = ("SAFETY", "BLOCKLIST", "PROHIBITED_CONTENT", "RECITATION")
 
 
-class GeminiError(RuntimeError):
+class GeminiError(ImageProviderError):
     """Generic, non-recoverable Gemini failure (malformed/empty response, exhausted retries)."""
 
 
-class SafetyBlockedError(GeminiError):
+class SafetyBlockedError(GeminiError, ImageSafetyBlockedError):
     """The model refused the request for safety reasons — do not retry; rephrase."""
 
 
-class GeminiTimeoutError(GeminiError):
+class GeminiTimeoutError(GeminiError, ImageProviderTimeoutError):
     """A single call exceeded the hard per-call timeout."""
 
 
