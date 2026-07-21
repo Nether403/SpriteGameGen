@@ -178,3 +178,85 @@ def _is_image_part(obj):
     inline = getattr(obj, "inline_data", None)
     return inline is not None and getattr(inline, "mime_type", "").startswith("image/") \
         if inline is not None else False
+
+
+# --- build_default_client credential selection ---
+
+class _FakeSettings:
+    def __init__(self, creds_path):
+        self.google_application_credentials = creds_path
+        self.google_cloud_project = "proj-x"
+        self.google_cloud_region = "us-central1"
+        self.gemini_model_generate = "gen-model"
+        self.gemini_model_edit = "edit-model"
+
+
+def _patch_sdk(monkeypatch):
+    """Capture the kwargs passed to genai.Client without a real client."""
+    from google import genai
+
+    captured = {}
+
+    def fake_client(**kwargs):
+        captured.update(kwargs)
+        return object()
+
+    monkeypatch.setattr(genai, "Client", fake_client)
+    return captured
+
+
+def test_build_default_client_loads_service_account_when_set(monkeypatch, tmp_path):
+    import app.services.gemini_client as gc
+
+    key_file = tmp_path / "sa.json"
+    key_file.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(gc, "get_settings", lambda: _FakeSettings(str(key_file)))
+
+    sentinel_creds = object()
+    seen = {}
+    from google.oauth2 import service_account
+
+    def fake_from_file(path, scopes=None):
+        seen["path"] = path
+        seen["scopes"] = scopes
+        return sentinel_creds
+
+    monkeypatch.setattr(
+        service_account.Credentials, "from_service_account_file", staticmethod(fake_from_file)
+    )
+    captured = _patch_sdk(monkeypatch)
+
+    client = gc.build_default_client()
+
+    assert seen["path"] == str(key_file)
+    assert "https://www.googleapis.com/auth/cloud-platform" in seen["scopes"]
+    # explicit credentials passed to the SDK (not None)
+    assert captured["credentials"] is sentinel_creds
+    assert captured["vertexai"] is True
+    assert captured["project"] == "proj-x"
+    assert client._model_generate == "gen-model"
+    assert client._model_edit == "edit-model"
+
+
+def test_build_default_client_uses_adc_when_credentials_unset(monkeypatch):
+    import app.services.gemini_client as gc
+
+    monkeypatch.setattr(gc, "get_settings", lambda: _FakeSettings(""))
+    captured = _patch_sdk(monkeypatch)
+
+    # Must NOT attempt to load a service-account file; credentials stays None so
+    # the SDK falls back to Application Default Credentials (gcloud).
+    from google.oauth2 import service_account
+
+    def _boom(*a, **k):  # pragma: no cover - should never be called
+        raise AssertionError("should not load a service-account file for ADC")
+
+    monkeypatch.setattr(
+        service_account.Credentials, "from_service_account_file", staticmethod(_boom)
+    )
+
+    gc.build_default_client()
+
+    assert captured["credentials"] is None
+    assert captured["vertexai"] is True
+    assert captured["project"] == "proj-x"

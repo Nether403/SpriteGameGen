@@ -4,7 +4,11 @@ import importlib
 import pytest
 
 
-def _clear_env(monkeypatch):
+def _clear_env(monkeypatch, tmp_path):
+    # Run in an empty dir so pydantic's `.env` fallback can't leak the developer's
+    # real backend/.env into these tests — they must depend only on env vars set
+    # here.
+    monkeypatch.chdir(tmp_path)
     for key in (
         "GOOGLE_APPLICATION_CREDENTIALS",
         "GOOGLE_CLOUD_PROJECT",
@@ -26,7 +30,7 @@ def _fresh_config():
 
 
 def _valid_env(monkeypatch, tmp_path):
-    _clear_env(monkeypatch)
+    _clear_env(monkeypatch, tmp_path)
     key_file = tmp_path / "sa.json"
     key_file.write_text("{}", encoding="utf-8")
     monkeypatch.setenv("GOOGLE_APPLICATION_CREDENTIALS", str(key_file))
@@ -70,7 +74,7 @@ def test_missing_project_fails_loud(monkeypatch, tmp_path):
 
 
 def test_missing_credentials_file_fails_loud(monkeypatch, tmp_path):
-    _clear_env(monkeypatch)
+    _clear_env(monkeypatch, tmp_path)
     monkeypatch.setenv(
         "GOOGLE_APPLICATION_CREDENTIALS", str(tmp_path / "does-not-exist.json")
     )
@@ -81,13 +85,16 @@ def test_missing_credentials_file_fails_loud(monkeypatch, tmp_path):
         config.get_settings()
 
 
-def test_unset_credentials_fails_loud(monkeypatch, tmp_path):
-    _clear_env(monkeypatch)
+def test_unset_credentials_allowed_for_adc(monkeypatch, tmp_path):
+    # An empty credentials path is valid — the SDK falls back to Application
+    # Default Credentials (gcloud). Only the project is required.
+    _clear_env(monkeypatch, tmp_path)
     monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "my-project")
     config = _fresh_config()
 
-    with pytest.raises(RuntimeError, match="GOOGLE_APPLICATION_CREDENTIALS"):
-        config.get_settings()
+    settings = config.get_settings()
+    assert settings.google_application_credentials == ""
+    assert settings.google_cloud_project == "my-project"
 
 
 def test_get_settings_is_cached(monkeypatch, tmp_path):

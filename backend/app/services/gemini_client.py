@@ -156,12 +156,31 @@ def _to_png_bytes(img: Image.Image) -> bytes:
 
 
 def build_default_client() -> GeminiClient:
-    """Construct a GeminiClient wired to a real Vertex AI SDK client from settings."""
+    """Construct a GeminiClient wired to a real Vertex AI SDK client from settings.
+
+    Credential resolution:
+      * If ``GOOGLE_APPLICATION_CREDENTIALS`` is set, load that service-account
+        JSON key explicitly (with the Vertex ``cloud-platform`` scope) and pass
+        it to the client — this does not depend on the OS environment or a
+        gcloud login.
+      * Otherwise, let the SDK fall back to Application Default Credentials
+        (e.g. ``gcloud auth application-default login``).
+    """
     from google import genai
 
     settings = get_settings()
+    credentials = None
+    if settings.google_application_credentials:
+        from google.oauth2 import service_account
+
+        credentials = service_account.Credentials.from_service_account_file(
+            settings.google_application_credentials,
+            scopes=["https://www.googleapis.com/auth/cloud-platform"],
+        )
+
     sdk = genai.Client(
         vertexai=True,
+        credentials=credentials,  # None => SDK uses ADC
         project=settings.google_cloud_project,
         location=settings.google_cloud_region,
     )

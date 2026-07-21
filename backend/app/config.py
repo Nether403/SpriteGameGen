@@ -1,12 +1,15 @@
 """Application configuration.
 
-Auth model: Vertex AI / Google Agent Platform via a service-account JSON key
-(not a GEMINI_API_KEY). The credentials path, GCP project, and region are read
-from the environment here and nowhere else. Model IDs also live only here and
-are read solely by ``gemini_client.py``.
+Auth model: Vertex AI / Google Agent Platform. Preferred path is an explicit
+service-account JSON key (``GOOGLE_APPLICATION_CREDENTIALS``); when that is unset
+the SDK falls back to Application Default Credentials (e.g. a ``gcloud`` login).
+The credentials path, GCP project, and region are read from the environment here
+and nowhere else. Model IDs also live only here and are read solely by
+``gemini_client.py``.
 
-Validation is fail-loud: a missing/unreadable credentials file or an unset
-project raises at settings-construction time (app startup), never mid-request.
+Validation is fail-loud: a credentials path that points at a missing file, or an
+unset project, raises at settings-construction time (app startup), never
+mid-request. An empty credentials path is allowed (ADC fallback).
 """
 from __future__ import annotations
 
@@ -40,18 +43,16 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _validate_auth(self) -> "Settings":
-        if not self.google_application_credentials:
-            raise ValueError(
-                "GOOGLE_APPLICATION_CREDENTIALS is not set. This app authenticates "
-                "to Gemini via a Vertex AI service-account JSON key; point this at "
-                "the key file."
-            )
-        cred_path = Path(self.google_application_credentials)
-        if not cred_path.is_file():
-            raise ValueError(
-                f"GOOGLE_APPLICATION_CREDENTIALS points at a missing file: "
-                f"{cred_path}"
-            )
+        # The service-account key is OPTIONAL: when set it is used explicitly,
+        # and when empty the SDK falls back to Application Default Credentials
+        # (e.g. a gcloud login). Either way a project is required for Vertex.
+        if self.google_application_credentials:
+            cred_path = Path(self.google_application_credentials)
+            if not cred_path.is_file():
+                raise ValueError(
+                    f"GOOGLE_APPLICATION_CREDENTIALS points at a missing file: "
+                    f"{cred_path}"
+                )
         if not self.google_cloud_project:
             raise ValueError(
                 "GOOGLE_CLOUD_PROJECT is not set. Vertex AI requires a GCP project ID."
