@@ -43,3 +43,6 @@ frontend/vite.config.js
 Thumbs.db
 .idea/
 .vscode/
+
+# Stray gcloud CLI changelog dump (not a project file)
+GCloud-update-notice.txt
