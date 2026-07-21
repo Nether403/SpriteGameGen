@@ -126,6 +126,10 @@ export function ProjectBrowser() {
                   </div>
                   <p className="project-card-meta">
                     {project.style || "Unknown style"}
+                    {project.view_mode
+                      ? ` · ${project.view_mode === "side_scroller" ? "side-scroller" : "top-down 2.5D"}`
+                      : ""}
+                    {project.direction ? ` · ${project.direction.replace("_", "-")}` : ""}
                     {project.action ? ` · ${project.action}` : " · Not animated"}
                   </p>
                   <p className={`project-card-status project-status-${project.health}`}>

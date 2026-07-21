@@ -1,7 +1,7 @@
 """Prompt builder: style directives + data-driven preset table (pure)."""
 import pytest
 
-from app.models import Style
+from app.models import Direction, Style, ViewMode
 from app.services import prompt_builder as pb
 
 
@@ -24,6 +24,22 @@ def test_generate_prompt_requests_transparent_single_subject():
     assert "single" in out or "one" in out  # single centered subject
 
 
+def test_generate_prompt_describes_side_scroller_camera_and_direction():
+    out = pb.build_generate_prompt(
+        "a knight", Style.PIXEL, ViewMode.SIDE_SCROLLER, Direction.RIGHT
+    ).lower()
+    assert "side-scroller" in out
+    assert "right" in out
+
+
+def test_generate_prompt_describes_top_down_camera_and_diagonal_direction():
+    out = pb.build_generate_prompt(
+        "a knight", Style.PIXEL, ViewMode.TOP_DOWN_2_5D, Direction.UP_LEFT
+    ).lower()
+    assert "top-down" in out
+    assert "up-left" in out
+
+
 def test_list_presets_returns_core_actions():
     presets = pb.list_presets()
     names = {p["action"] for p in presets}
@@ -43,6 +59,15 @@ def test_frame_prompt_renders_template():
     # frame position communicated to the model (1-based, human-friendly)
     assert "3" in out and "6" in out
     assert "same character" in low  # base-anchored consistency cue
+
+
+def test_frame_prompt_preserves_camera_and_direction_context():
+    out = pb.frame_prompt(
+        "walk", 2, 6, ViewMode.TOP_DOWN_2_5D, Direction.DOWN_RIGHT
+    ).lower()
+    assert "top-down" in out
+    assert "down-right" in out
+    assert "frame 3 of 6" in out
 
 
 def test_frame_prompt_is_data_driven_not_branched():

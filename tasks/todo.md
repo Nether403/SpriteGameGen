@@ -16,30 +16,30 @@
 
 ## Phase 2A: Directional controls
 
-- [ ] Task 5 — Define camera/direction rules and pure prompts
-- [ ] Task 6 — Carry direction through backend generation and animation
-- [ ] Task 7 — Add direction contracts to frontend state and API
-- [ ] Task 8 — Add camera-aware direction controls
+- [x] Task 5 — Define camera/direction rules and pure prompts
+- [x] Task 6 — Carry direction through backend generation and animation
+- [x] Task 7 — Add direction contracts to frontend state and API
+- [x] Task 8 — Add camera-aware direction controls
 
 ### Checkpoint 2A
 
-- [ ] Side-scroller allows only left/right
-- [ ] Top-down/2.5D allows all eight directions
-- [ ] Stored direction survives reload and frame regeneration
-- [ ] Existing side-scroller/left behavior remains the default
+- [x] Side-scroller allows only left/right
+- [x] Top-down/2.5D allows all eight directions
+- [x] Stored direction survives reload and frame regeneration
+- [x] Existing side-scroller/left behavior remains the default
 
 ## Phase 2B: Prompt enhancer
 
-- [ ] Task 9 — Add a text-only Gemini enhancement primitive
-- [ ] Task 10 — Add enhancement API and prompt provenance
-- [ ] Task 11 — Add opt-in prompt preview and fallback UI
+- [x] Task 9 — Add a text-only Gemini enhancement primitive
+- [x] Task 10 — Add enhancement API and prompt provenance
+- [x] Task 11 — Add opt-in prompt preview and fallback UI
 
 ### Checkpoint 2B
 
-- [ ] Raw, enhanced, edited-enhanced, revert, and failure fallback paths pass
-- [ ] No hidden enhancement call occurs
-- [ ] Prompt provenance survives resume
-- [ ] Full suites and build pass
+- [x] Raw, enhanced, edited-enhanced, revert, and failure fallback paths pass
+- [x] No hidden enhancement call occurs
+- [x] Prompt provenance survives resume
+- [x] Full suites and build pass
 
 ## Phase 3: Shared services and MCP
 
@@ -61,10 +61,10 @@
 
 ## Final validation
 
-- [ ] `backend`: full pytest suite
-- [ ] `backend`: `pip check`
-- [ ] `frontend`: full Vitest suite
-- [ ] `frontend`: production build
+- [x] `backend`: full pytest suite
+- [x] `backend`: `pip check`
+- [x] `frontend`: full Vitest suite
+- [x] `frontend`: production build
 - [ ] `frontend`: production dependency audit
 - [ ] Repository: `git diff --check`
 - [ ] Manual smoke: browse/resume, direction, enhancer fallback, MCP export

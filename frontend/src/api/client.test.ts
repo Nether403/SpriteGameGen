@@ -7,10 +7,12 @@ import {
   ApiError,
   animate,
   deleteProject,
+  enhancePrompt,
   exportProject,
   generate,
   getProject,
   listPresets,
+  listAnimationOptions,
   listProjects,
   regenerateFrame,
 } from "./client";
@@ -50,7 +52,39 @@ describe("generate", () => {
     const body = init.body as FormData;
     expect(body.get("prompt")).toBe("a knight");
     expect(body.get("style")).toBe("pixel");
+    expect(body.get("view_mode")).toBe("side_scroller");
+    expect(body.get("direction")).toBe("left");
     expect(body.get("reference")).toBeNull();
+  });
+
+  it("serializes an explicit camera and direction once", async () => {
+    const fetchMock = mockFetch({
+      ok: true,
+      json: async () => ({ project_id: "p1", sprite_url: "u" }),
+    });
+
+    await generate("a knight", "pixel", null, {
+      viewMode: "top_down_2_5d",
+      direction: "up_left",
+    });
+
+    const body = fetchMock.mock.calls[0][1].body as FormData;
+    expect(body.getAll("view_mode")).toEqual(["top_down_2_5d"]);
+    expect(body.getAll("direction")).toEqual(["up_left"]);
+  });
+
+  it("includes an accepted enhanced prompt only when supplied", async () => {
+    const fetchMock = mockFetch({
+      ok: true,
+      json: async () => ({ project_id: "p1", sprite_url: "u" }),
+    });
+
+    await generate("a knight", "pixel", null, {
+      enhancedPrompt: "a detailed silver knight",
+    });
+
+    const body = fetchMock.mock.calls[0][1].body as FormData;
+    expect(body.getAll("enhanced_prompt")).toEqual(["a detailed silver knight"]);
   });
 
   it("appends the reference file when provided", async () => {
@@ -78,6 +112,34 @@ describe("generate", () => {
       name: "ApiError",
       status: 422,
       message: "prompt must not be empty",
+    });
+  });
+});
+
+describe("enhancePrompt", () => {
+  it("POSTs the raw prompt and creative context", async () => {
+    const fetchMock = mockFetch({
+      ok: true,
+      json: async () => ({
+        original_prompt: "a knight",
+        enhanced_prompt: "a silver knight",
+      }),
+    });
+
+    await enhancePrompt({
+      prompt: "a knight",
+      style: "pixel",
+      view_mode: "top_down_2_5d",
+      direction: "up_left",
+    });
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/prompts/enhance");
+    expect(JSON.parse(init.body)).toEqual({
+      prompt: "a knight",
+      style: "pixel",
+      view_mode: "top_down_2_5d",
+      direction: "up_left",
     });
   });
 });
@@ -135,6 +197,7 @@ describe("animate", () => {
       action: "walk",
       frames: null,
       fps: 8,
+      direction: "left",
     });
   });
 
@@ -144,14 +207,23 @@ describe("animate", () => {
       json: async () => ({ project_id: "p1", action: "run", fps: 12, frames: [] }),
     });
 
-    await animate("p1", "run", { frames: 6, fps: 12 });
+    await animate("p1", "run", { frames: 6, fps: 12, direction: "down_right" });
 
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
       project_id: "p1",
       action: "run",
       frames: 6,
       fps: 12,
+      direction: "down_right",
     });
+  });
+});
+
+describe("animation options", () => {
+  it("GETs the backend camera rules", async () => {
+    const fetchMock = mockFetch({ ok: true, json: async () => [] });
+    await listAnimationOptions();
+    expect(fetchMock.mock.calls[0][0]).toBe("/animation-options");
   });
 });
 

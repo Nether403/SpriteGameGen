@@ -30,6 +30,8 @@ def _summary(record: ProjectRecord) -> ProjectSummary:
         id=record.id,
         prompt_preview=project.prompt[:120] if project is not None else None,
         style=project.style if project is not None else None,
+        view_mode=project.view_mode if project is not None else None,
+        direction=project.direction if project is not None else None,
         thumbnail_url=asset_url(record.id, "sprite.png") if record.has_sprite else None,
         action=project.action if project is not None else None,
         fps=project.fps if project is not None else None,

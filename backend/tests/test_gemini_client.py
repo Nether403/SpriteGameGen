@@ -4,7 +4,7 @@ import io
 import pytest
 from PIL import Image
 
-from app.models import Style
+from app.models import Direction, Style, ViewMode
 from app.services.gemini_client import (
     GeminiClient,
     GeminiError,
@@ -43,8 +43,9 @@ class _Candidate:
 
 
 class _Response:
-    def __init__(self, parts, finish_reason=None):
+    def __init__(self, parts, finish_reason=None, text=None):
         self.candidates = [_Candidate(parts, finish_reason)]
+        self.text = text
 
 
 class FakeModels:
@@ -72,6 +73,7 @@ def _make_client(script, **kwargs):
     params = {
         "model_generate": "gen-model",
         "model_edit": "edit-model",
+        "model_text": "text-model",
         "max_retries": 3,
         "backoff_base": 0.0,  # no real sleeping
         "sleep": lambda s: None,
@@ -145,6 +147,47 @@ def test_edit_uses_edit_model_and_passes_base_image():
     assert any(_is_image_part(c) for c in contents)
 
 
+# --- prompt enhancement ---
+
+def test_enhance_prompt_uses_text_model_and_bounded_text_config():
+    client, sdk = _make_client(
+        [_Response([_Part()], text="A battle-worn knight with a readable silhouette")]
+    )
+
+    result = client.enhance_prompt(
+        "a knight",
+        Style.PIXEL,
+        ViewMode.TOP_DOWN_2_5D,
+        Direction.UP_LEFT,
+    )
+
+    assert result.startswith("A battle-worn knight")
+    call = sdk.models.calls[0]
+    assert call["model"] == "text-model"
+    assert call["config"].temperature == 0.2
+    assert call["config"].max_output_tokens == 300
+    assert call["config"].response_mime_type == "text/plain"
+    assert call["config"].http_options.timeout == 120_000
+    assert "top_down_2_5d" in call["contents"][0]
+    assert "up_left" in call["contents"][0]
+
+
+def test_enhance_prompt_removes_markdown_fence():
+    client, _ = _make_client([_Response([_Part()], text="```text\nA clear knight\n```")])
+    assert client.enhance_prompt("knight", Style.PIXEL) == "A clear knight"
+
+
+def test_enhance_prompt_rejects_empty_or_safety_output():
+    empty, _ = _make_client([_Response([_Part()], text="   ")])
+    with pytest.raises(GeminiError, match="no text"):
+        empty.enhance_prompt("knight", Style.PIXEL)
+
+    blocked, sdk = _make_client([_Response([], finish_reason="SAFETY", text=None)])
+    with pytest.raises(SafetyBlockedError):
+        blocked.enhance_prompt("knight", Style.PIXEL)
+    assert len(sdk.models.calls) == 1
+
+
 # --- error handling ---
 
 def test_transient_error_is_retried_then_succeeds():
@@ -208,6 +251,7 @@ class _FakeSettings:
         self.google_cloud_region = "us-central1"
         self.gemini_model_generate = "gen-model"
         self.gemini_model_edit = "edit-model"
+        self.gemini_model_text = "text-model"
 
 
 def _patch_sdk(monkeypatch):
@@ -255,6 +299,7 @@ def test_build_default_client_loads_service_account_when_set(monkeypatch, tmp_pa
     assert captured["project"] == "proj-x"
     assert client._model_generate == "gen-model"
     assert client._model_edit == "edit-model"
+    assert client._model_text == "text-model"
 
 
 def test_build_default_client_uses_adc_when_credentials_unset(monkeypatch):

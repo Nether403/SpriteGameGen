@@ -2,12 +2,24 @@
 // fetch). Errors surface the backend's `detail` message so the UI can show it.
 
 export type Style = "pixel" | "hires";
+export type ViewMode = "side_scroller" | "top_down_2_5d";
+export type Direction =
+  | "left"
+  | "right"
+  | "up"
+  | "down"
+  | "up_left"
+  | "up_right"
+  | "down_left"
+  | "down_right";
 export type ExportFormat = "json" | "xml";
 export type FrameStatus = "ok" | "failed";
+export type PromptSource = "raw" | "enhanced";
 
 export interface GenerateResult {
   project_id: string;
   sprite_url: string;
+  prompt_source: PromptSource;
 }
 
 export interface ExportResult {
@@ -25,7 +37,11 @@ export interface Project {
   id: string;
   schema_version: number;
   prompt: string;
+  enhanced_prompt: string | null;
+  prompt_source: PromptSource;
   style: Style;
+  view_mode: ViewMode;
+  direction: Direction;
   frames: Frame[];
   action: string | null;
   fps: number | null;
@@ -39,6 +55,8 @@ export interface ProjectSummary {
   id: string;
   prompt_preview: string | null;
   style: Style | null;
+  view_mode: ViewMode | null;
+  direction: Direction | null;
   thumbnail_url: string | null;
   action: string | null;
   fps: number | null;
@@ -85,13 +103,44 @@ export async function generate(
   prompt: string,
   style: Style,
   reference?: File | null,
+  opts: {
+    viewMode?: ViewMode;
+    direction?: Direction;
+    enhancedPrompt?: string | null;
+  } = {},
 ): Promise<GenerateResult> {
   const form = new FormData();
   form.append("prompt", prompt);
   form.append("style", style);
+  form.append("view_mode", opts.viewMode ?? "side_scroller");
+  form.append("direction", opts.direction ?? "left");
+  if (opts.enhancedPrompt) form.append("enhanced_prompt", opts.enhancedPrompt);
   if (reference) form.append("reference", reference);
   const res = await fetch("/generate", { method: "POST", body: form });
   return unwrap<GenerateResult>(res);
+}
+
+export interface EnhancePromptRequest {
+  prompt: string;
+  style: Style;
+  view_mode: ViewMode;
+  direction: Direction;
+}
+
+export interface EnhancePromptResult {
+  original_prompt: string;
+  enhanced_prompt: string;
+}
+
+export async function enhancePrompt(
+  request: EnhancePromptRequest,
+): Promise<EnhancePromptResult> {
+  const res = await fetch("/prompts/enhance", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request),
+  });
+  return unwrap<EnhancePromptResult>(res);
 }
 
 // POST /export — JSON body.
@@ -117,6 +166,8 @@ export interface AnimateResult {
   project_id: string;
   action: string;
   fps: number;
+  view_mode: ViewMode;
+  direction: Direction;
   frames: Frame[];
 }
 
@@ -125,7 +176,7 @@ export interface AnimateResult {
 export async function animate(
   projectId: string,
   action: string,
-  opts: { frames?: number | null; fps?: number } = {},
+  opts: { frames?: number | null; fps?: number; direction?: Direction } = {},
 ): Promise<AnimateResult> {
   const res = await fetch("/animate", {
     method: "POST",
@@ -135,6 +186,7 @@ export async function animate(
       action,
       frames: opts.frames ?? null,
       fps: opts.fps ?? 8,
+      direction: opts.direction ?? "left",
     }),
   });
   return unwrap<AnimateResult>(res);
@@ -175,8 +227,17 @@ export interface Preset {
   pose: string;
 }
 
+export interface AnimationOptions {
+  view_mode: ViewMode;
+  directions: Direction[];
+}
+
 export async function listPresets(): Promise<Preset[]> {
   return unwrap<Preset[]>(await fetch("/presets"));
+}
+
+export async function listAnimationOptions(): Promise<AnimationOptions[]> {
+  return unwrap<AnimationOptions[]>(await fetch("/animation-options"));
 }
 
 export async function listProjects(): Promise<ProjectSummary[]> {

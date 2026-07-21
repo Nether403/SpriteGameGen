@@ -5,12 +5,15 @@ from pydantic import ValidationError
 
 from app.models import (
     AnimateRequest,
+    Direction,
     ExportFormat,
     ExportOptions,
     Frame,
     FrameStatus,
     Project,
     Style,
+    ViewMode,
+    directions_for,
 )
 
 
@@ -18,6 +21,36 @@ def test_style_enum_values():
     assert Style.PIXEL.value == "pixel"
     assert Style.HIRES.value == "hires"
     assert Style("pixel") is Style.PIXEL
+
+
+def test_direction_rules_match_camera_modes():
+    assert directions_for(ViewMode.SIDE_SCROLLER) == (
+        Direction.LEFT,
+        Direction.RIGHT,
+    )
+    assert set(directions_for(ViewMode.TOP_DOWN_2_5D)) == set(Direction)
+
+
+@pytest.mark.parametrize(
+    "direction",
+    [
+        Direction.UP,
+        Direction.DOWN,
+        Direction.UP_LEFT,
+        Direction.UP_RIGHT,
+        Direction.DOWN_LEFT,
+        Direction.DOWN_RIGHT,
+    ],
+)
+def test_side_scroller_project_rejects_non_horizontal_direction(direction):
+    with pytest.raises(ValidationError):
+        Project(
+            id="x",
+            prompt="p",
+            style=Style.PIXEL,
+            view_mode=ViewMode.SIDE_SCROLLER,
+            direction=direction,
+        )
 
 
 def test_frame_status_values():
@@ -51,6 +84,8 @@ def test_project_construction():
     assert project.id == "abc-123"
     assert project.style is Style.PIXEL
     assert len(project.frames) == 1
+    assert project.view_mode is ViewMode.SIDE_SCROLLER
+    assert project.direction is Direction.LEFT
     # frames default to empty list
     assert Project(id="x", prompt="p", style=Style.HIRES).frames == []
 
@@ -97,6 +132,7 @@ def test_animate_request_defaults():
     req = AnimateRequest(project_id="p1", action="walk")
     assert req.frames is None  # route fills preset default
     assert req.fps == 8
+    assert req.direction is Direction.LEFT
 
 
 def test_animate_request_explicit():

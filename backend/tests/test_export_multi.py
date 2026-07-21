@@ -22,7 +22,9 @@ class FakeGemini:
         img.paste(Image.new("RGBA", (20, 20), (255, 0, 0, 255)), (22, 20))
         return img
 
-    def generate(self, prompt, style, reference=None):
+    def generate(
+        self, prompt, style, reference=None, *, view_mode=None, direction=None
+    ):
         return self._sprite()
 
     def edit(self, base_img, prompt):

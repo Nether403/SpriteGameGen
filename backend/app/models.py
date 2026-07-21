@@ -8,7 +8,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from enum import Enum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class Style(str, Enum):
@@ -16,6 +16,52 @@ class Style(str, Enum):
 
     PIXEL = "pixel"
     HIRES = "hires"
+
+
+class ViewMode(str, Enum):
+    """Camera perspective used by the base sprite and all derived frames."""
+
+    SIDE_SCROLLER = "side_scroller"
+    TOP_DOWN_2_5D = "top_down_2_5d"
+
+
+class Direction(str, Enum):
+    LEFT = "left"
+    RIGHT = "right"
+    UP = "up"
+    DOWN = "down"
+    UP_LEFT = "up_left"
+    UP_RIGHT = "up_right"
+    DOWN_LEFT = "down_left"
+    DOWN_RIGHT = "down_right"
+
+
+class PromptSource(str, Enum):
+    RAW = "raw"
+    ENHANCED = "enhanced"
+
+
+_DIRECTIONS_BY_VIEW: dict[ViewMode, tuple[Direction, ...]] = {
+    ViewMode.SIDE_SCROLLER: (Direction.LEFT, Direction.RIGHT),
+    ViewMode.TOP_DOWN_2_5D: tuple(Direction),
+}
+
+
+def directions_for(view_mode: ViewMode) -> tuple[Direction, ...]:
+    """Return the authoritative directions allowed for a camera mode."""
+
+    return _DIRECTIONS_BY_VIEW[view_mode]
+
+
+def validate_direction(view_mode: ViewMode, direction: Direction) -> Direction:
+    """Validate a mode/direction pair and return the direction for composition."""
+
+    if direction not in directions_for(view_mode):
+        raise ValueError(
+            f"direction '{direction.value}' is not valid for view mode "
+            f"'{view_mode.value}'"
+        )
+    return direction
 
 
 class FrameStatus(str, Enum):
@@ -53,13 +99,24 @@ class Project(BaseModel):
 
     id: str
     prompt: str
+    enhanced_prompt: str | None = None
+    prompt_source: PromptSource = PromptSource.RAW
     style: Style
+    view_mode: ViewMode = ViewMode.SIDE_SCROLLER
+    direction: Direction = Direction.LEFT
     schema_version: int = Field(default=1, ge=1)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     frames: list[Frame] = Field(default_factory=list)
     action: str | None = None
     fps: int | None = Field(default=None, ge=1, le=60)
+
+    @model_validator(mode="after")
+    def validate_camera_direction(self) -> Project:
+        validate_direction(self.view_mode, self.direction)
+        if self.prompt_source is PromptSource.ENHANCED and not self.enhanced_prompt:
+            raise ValueError("enhanced prompt source requires enhanced_prompt")
+        return self
 
 
 class ProjectSummary(BaseModel):
@@ -68,6 +125,8 @@ class ProjectSummary(BaseModel):
     id: str
     prompt_preview: str | None = None
     style: Style | None = None
+    view_mode: ViewMode | None = None
+    direction: Direction | None = None
     thumbnail_url: str | None = None
     action: str | None = None
     fps: int | None = None
@@ -109,3 +168,29 @@ class AnimateRequest(BaseModel):
     action: str = Field(min_length=1)
     frames: int | None = Field(default=None, ge=2, le=8)
     fps: int = Field(default=8, ge=1, le=60)
+    direction: Direction = Direction.LEFT
+
+
+class EnhancePromptRequest(BaseModel):
+    prompt: str = Field(min_length=1, max_length=1000)
+    style: Style
+    view_mode: ViewMode = ViewMode.SIDE_SCROLLER
+    direction: Direction = Direction.LEFT
+
+    @field_validator("prompt")
+    @classmethod
+    def prompt_must_have_content(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("prompt must not be empty")
+        return value
+
+    @model_validator(mode="after")
+    def validate_camera_direction(self) -> EnhancePromptRequest:
+        validate_direction(self.view_mode, self.direction)
+        return self
+
+
+class EnhancePromptResult(BaseModel):
+    original_prompt: str
+    enhanced_prompt: str

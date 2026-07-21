@@ -12,7 +12,15 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Uplo
 from PIL import Image, UnidentifiedImageError
 
 from app.deps import get_gemini_client, get_store
-from app.models import Frame, Project, Style
+from app.models import (
+    Direction,
+    Frame,
+    PromptSource,
+    Project,
+    Style,
+    ViewMode,
+    validate_direction,
+)
 from app.pipeline import background, pixelate, trim
 from app.pipeline.background import BackgroundRemovalError
 from app.pipeline.pixelate import PixelateError
@@ -31,11 +39,34 @@ def _parse_style(value: str) -> Style:
         raise HTTPException(status_code=422, detail=f"unknown style: {value!r}")
 
 
+def _parse_camera(view_mode: str, direction: str) -> tuple[ViewMode, Direction]:
+    try:
+        mode_enum = ViewMode(view_mode)
+    except ValueError:
+        raise HTTPException(
+            status_code=422, detail=f"unknown view mode: {view_mode!r}"
+        )
+    try:
+        direction_enum = Direction(direction)
+    except ValueError:
+        raise HTTPException(
+            status_code=422, detail=f"unknown direction: {direction!r}"
+        )
+    try:
+        validate_direction(mode_enum, direction_enum)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    return mode_enum, direction_enum
+
+
 @router.post("/generate")
 async def generate(
     request: Request,
     prompt: str = Form(...),
     style: str = Form(...),
+    enhanced_prompt: str | None = Form(default=None),
+    view_mode: str = Form(default=ViewMode.SIDE_SCROLLER.value),
+    direction: str = Form(default=Direction.LEFT.value),
     reference: UploadFile | None = File(default=None),
     gemini: GeminiClient = Depends(get_gemini_client),
     store: ProjectStore = Depends(get_store),
@@ -43,6 +74,13 @@ async def generate(
     if not prompt.strip():
         raise HTTPException(status_code=422, detail="prompt must not be empty")
     style_enum = _parse_style(style)
+    mode_enum, direction_enum = _parse_camera(view_mode, direction)
+    accepted_prompt = enhanced_prompt.strip() if enhanced_prompt else None
+    if accepted_prompt is not None and len(accepted_prompt) > 2000:
+        raise HTTPException(
+            status_code=422, detail="enhanced prompt must be at most 2000 characters"
+        )
+    effective_prompt = accepted_prompt or prompt.strip()
 
     ref_img: Image.Image | None = None
     if reference is not None:
@@ -60,7 +98,13 @@ async def generate(
 
     # --- generation ---
     try:
-        raw_img = gemini.generate(prompt, style_enum, reference=ref_img)
+        raw_img = gemini.generate(
+            effective_prompt,
+            style_enum,
+            reference=ref_img,
+            view_mode=mode_enum,
+            direction=direction_enum,
+        )
     except SafetyBlockedError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     except GeminiError as exc:
@@ -92,9 +136,19 @@ async def generate(
     project = Project(
         id=pid,
         prompt=prompt.strip(),
+        enhanced_prompt=accepted_prompt,
+        prompt_source=(
+            PromptSource.ENHANCED if accepted_prompt else PromptSource.RAW
+        ),
         style=style_enum,
+        view_mode=mode_enum,
+        direction=direction_enum,
         frames=[Frame(index=0, url=sprite_url)],
     )
     store.write_manifest(pid, project)
 
-    return {"project_id": pid, "sprite_url": sprite_url}
+    return {
+        "project_id": pid,
+        "sprite_url": sprite_url,
+        "prompt_source": project.prompt_source,
+    }

@@ -8,7 +8,7 @@ from PIL import Image
 
 from app.deps import get_gemini_client, get_store
 from app.main import create_app
-from app.models import Style
+from app.models import Direction, Style, ViewMode
 from app.storage.project_store import ProjectStore
 
 
@@ -18,8 +18,18 @@ class FakeGemini:
     def __init__(self):
         self.generate_calls = []
 
-    def generate(self, prompt, style, reference=None):
-        self.generate_calls.append({"prompt": prompt, "style": style, "reference": reference})
+    def generate(
+        self, prompt, style, reference=None, *, view_mode=None, direction=None
+    ):
+        self.generate_calls.append(
+            {
+                "prompt": prompt,
+                "style": style,
+                "reference": reference,
+                "view_mode": view_mode,
+                "direction": direction,
+            }
+        )
         img = Image.new("RGBA", (64, 64), (0, 255, 0, 255))  # green bg
         # draw an opaque red square in the middle (the "subject")
         block = Image.new("RGBA", (20, 20), (255, 0, 0, 255))
@@ -89,6 +99,70 @@ async def test_generate_persists_manifest(client, app_and_store):
     assert project.prompt == "p"
     assert len(project.frames) == 1
     assert project.frames[0].index == 0
+    assert project.enhanced_prompt is None
+    assert project.prompt_source.value == "raw"
+
+
+async def test_generate_uses_and_persists_explicit_enhanced_prompt(
+    client, app_and_store
+):
+    _, store, fake = app_and_store
+    response = await client.post(
+        "/generate",
+        data={
+            "prompt": "a knight",
+            "enhanced_prompt": "a silver-armored knight with a bold silhouette",
+            "style": "pixel",
+        },
+    )
+
+    assert response.status_code == 200
+    project = store.read_manifest(response.json()["project_id"])
+    assert project.prompt == "a knight"
+    assert project.enhanced_prompt == "a silver-armored knight with a bold silhouette"
+    assert project.prompt_source.value == "enhanced"
+    assert fake.generate_calls[-1]["prompt"] == project.enhanced_prompt
+
+
+async def test_generate_persists_camera_and_direction(client, app_and_store):
+    _, store, fake = app_and_store
+    response = await client.post(
+        "/generate",
+        data={
+            "prompt": "p",
+            "style": "pixel",
+            "view_mode": "top_down_2_5d",
+            "direction": "up_left",
+        },
+    )
+
+    assert response.status_code == 200
+    project = store.read_manifest(response.json()["project_id"])
+    assert project.view_mode is ViewMode.TOP_DOWN_2_5D
+    assert project.direction is Direction.UP_LEFT
+    assert fake.generate_calls[-1]["view_mode"] is ViewMode.TOP_DOWN_2_5D
+    assert fake.generate_calls[-1]["direction"] is Direction.UP_LEFT
+
+
+async def test_generate_rejects_invalid_camera_direction_before_model_call(
+    client, app_and_store
+):
+    _, store, fake = app_and_store
+    before = len(fake.generate_calls)
+
+    response = await client.post(
+        "/generate",
+        data={
+            "prompt": "p",
+            "style": "pixel",
+            "view_mode": "side_scroller",
+            "direction": "up",
+        },
+    )
+
+    assert response.status_code == 422
+    assert len(fake.generate_calls) == before
+    assert list(store.root.iterdir()) == []
 
 
 async def test_generate_rejects_empty_prompt(client):

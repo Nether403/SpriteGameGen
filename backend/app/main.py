@@ -12,7 +12,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from PIL import Image
 
-from app.routes import animate, assets, export, generate, projects
+from app.routes import animate, assets, export, generate, projects, prompts
 
 # Dev frontend origin (Vite).
 _CORS_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]
@@ -43,6 +43,7 @@ def create_app(
     app.include_router(animate.router)
     app.include_router(export.router)
     app.include_router(projects.router)
+    app.include_router(prompts.router)
     app.include_router(assets.router)
 
     @app.get("/health")

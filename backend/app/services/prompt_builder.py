@@ -7,14 +7,32 @@ consistent with the original sprite.
 """
 from __future__ import annotations
 
-from app.models import Style
+from app.models import Direction, Style, ViewMode, validate_direction
 
 # Shared directives that make the deterministic pipeline (bg removal + trim)
 # reliable regardless of style.
 _BASE_DIRECTIVES = (
-    "A single centered subject, full body in frame, facing left, "
+    "A single centered subject, full body in frame, "
     "on a plain flat solid-color background with no scenery or shadow."
 )
+
+_CAMERA_DIRECTIVES: dict[ViewMode, str] = {
+    ViewMode.SIDE_SCROLLER: (
+        "Strict side-profile side-scroller view with a fixed orthographic camera"
+    ),
+    ViewMode.TOP_DOWN_2_5D: (
+        "Three-quarter top-down 2.5D game view with a fixed camera"
+    ),
+}
+
+
+def _camera_direction(view_mode: ViewMode, direction: Direction) -> str:
+    validate_direction(view_mode, direction)
+    readable_direction = direction.value.replace("_", "-")
+    return (
+        f"{_CAMERA_DIRECTIVES[view_mode]}, facing and moving "
+        f"{readable_direction}."
+    )
 
 _STYLE_DIRECTIVES: dict[Style, str] = {
     Style.PIXEL: (
@@ -76,10 +94,19 @@ PRESETS: list[dict] = [
 _PRESETS_BY_ACTION: dict[str, dict] = {p["action"]: p for p in PRESETS}
 
 
-def build_generate_prompt(description: str, style: Style) -> str:
+def build_generate_prompt(
+    description: str,
+    style: Style,
+    view_mode: ViewMode = ViewMode.SIDE_SCROLLER,
+    direction: Direction = Direction.LEFT,
+) -> str:
     """Compose the text-to-image prompt from a user description + style directives."""
     style_directive = _STYLE_DIRECTIVES[style]
-    return f"{description.strip()}. {_BASE_DIRECTIVES} {style_directive}"
+    camera_directive = _camera_direction(view_mode, direction)
+    return (
+        f"{description.strip()}. {_BASE_DIRECTIVES} {camera_directive} "
+        f"{style_directive}"
+    )
 
 
 def list_presets() -> list[dict]:
@@ -92,7 +119,13 @@ def get_preset(action: str) -> dict:
     return dict(_PRESETS_BY_ACTION[action])
 
 
-def frame_prompt(action: str, index: int, total: int) -> str:
+def frame_prompt(
+    action: str,
+    index: int,
+    total: int,
+    view_mode: ViewMode = ViewMode.SIDE_SCROLLER,
+    direction: Direction = Direction.LEFT,
+) -> str:
     """Render the per-frame base-anchored prompt for ``action`` frame ``index``.
 
     ``index`` is 0-based internally; the rendered prompt shows a 1-based number.
@@ -103,6 +136,7 @@ def frame_prompt(action: str, index: int, total: int) -> str:
         raise ValueError("total must be >= 1")
     if not (0 <= index < total):
         raise ValueError(f"index {index} out of range for total {total}")
-    return _FRAME_TEMPLATE.format(
+    animation_prompt = _FRAME_TEMPLATE.format(
         pose=preset["pose"], i=index + 1, n=total, action=action
     )
+    return f"{animation_prompt} {_camera_direction(view_mode, direction)}"

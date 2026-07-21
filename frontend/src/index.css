@@ -212,6 +212,81 @@ input[type="file"] {
   gap: 0.35rem;
 }
 
+.camera-toggle {
+  flex-wrap: wrap;
+}
+
+.direction-controls {
+  border: 1px solid #e0e0ea;
+  border-radius: 6px;
+}
+
+.direction-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+  gap: 0.45rem;
+}
+
+.direction-grid label {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem;
+}
+
+.camera-context {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.65rem 0.75rem;
+  border-left: 3px solid #4f46e5;
+  background: #f5f4ff;
+}
+
+.camera-context span {
+  color: #666;
+  font-size: 0.85rem;
+}
+
+.prompt-enhancer {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  padding: 0.75rem;
+  border: 1px solid #d8d6ee;
+  border-radius: 6px;
+  background: #fafaff;
+}
+
+.enhancer-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+}
+
+.enhancer-toggle span,
+.enhancer-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.enhancer-toggle small {
+  color: #666;
+}
+
+.enhancer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.enhancer-accepted {
+  margin: 0;
+  color: #276738;
+  font-size: 0.85rem;
+}
+
 button {
   padding: 0.6rem 1rem;
   border: none;

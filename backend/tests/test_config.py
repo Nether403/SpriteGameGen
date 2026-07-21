@@ -15,6 +15,7 @@ def _clear_env(monkeypatch, tmp_path):
         "GOOGLE_CLOUD_REGION",
         "GEMINI_MODEL_GENERATE",
         "GEMINI_MODEL_EDIT",
+        "GEMINI_MODEL_TEXT",
         "PROJECTS_DIR",
         "MAX_UPLOAD_BYTES",
         "GEMINI_TIMEOUT_SECONDS",
@@ -50,6 +51,7 @@ def test_reads_env_and_defaults(monkeypatch, tmp_path):
     assert settings.google_cloud_region == "global"
     assert settings.gemini_model_generate == "gemini-3.1-flash-image"
     assert settings.gemini_model_edit == "gemini-3.1-flash-image"
+    assert settings.gemini_model_text == "gemini-3.5-flash"
     assert settings.gemini_timeout_seconds == 120
 
 
@@ -58,6 +60,7 @@ def test_model_ids_and_region_overridable(monkeypatch, tmp_path):
     monkeypatch.setenv("GOOGLE_CLOUD_REGION", "europe-west4")
     monkeypatch.setenv("GEMINI_MODEL_GENERATE", "gemini-3.1-flash-lite-image")
     monkeypatch.setenv("GEMINI_MODEL_EDIT", "gemini-3-pro-image")
+    monkeypatch.setenv("GEMINI_MODEL_TEXT", "gemini-3.5-flash-lite")
     monkeypatch.setenv("GEMINI_TIMEOUT_SECONDS", "37")
     config = _fresh_config()
 
@@ -65,6 +68,7 @@ def test_model_ids_and_region_overridable(monkeypatch, tmp_path):
     assert settings.google_cloud_region == "europe-west4"
     assert settings.gemini_model_generate == "gemini-3.1-flash-lite-image"
     assert settings.gemini_model_edit == "gemini-3-pro-image"
+    assert settings.gemini_model_text == "gemini-3.5-flash-lite"
     assert settings.gemini_timeout_seconds == 37
 
 

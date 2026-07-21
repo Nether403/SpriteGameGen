@@ -3,14 +3,29 @@
 // (FrameStrip). Presets come from the backend so adding one needs no UI change.
 import { useEffect, useState } from "react";
 
-import { animate, listPresets, type Preset } from "../api/client";
+import {
+  animate,
+  listAnimationOptions,
+  listPresets,
+  type AnimationOptions,
+  type Preset,
+} from "../api/client";
 import { useProjectStore } from "../state/project";
 import { AnimationPlayer } from "./AnimationPlayer";
+import { DirectionControls, viewModeLabel } from "./DirectionControls";
 import { FrameStrip } from "./FrameStrip";
 
 export function AnimatePanel() {
-  const { projectId, setAnimation, action: currentAction } = useProjectStore();
+  const {
+    projectId,
+    viewMode,
+    direction,
+    setDirection,
+    setAnimation,
+    action: currentAction,
+  } = useProjectStore();
   const [presets, setPresets] = useState<Preset[]>([]);
+  const [cameraOptions, setCameraOptions] = useState<AnimationOptions[]>([]);
   const [action, setAction] = useState("walk");
   const [frames, setFrames] = useState<number | "">("");
   const [busy, setBusy] = useState(false);
@@ -22,6 +37,12 @@ export function AnimatePanel() {
       .catch(() => setError("Could not load presets."));
   }, []);
 
+  useEffect(() => {
+    listAnimationOptions()
+      .then(setCameraOptions)
+      .catch(() => setError("Could not load camera options."));
+  }, []);
+
   const selected = presets.find((p) => p.action === action);
 
   async function onAnimate() {
@@ -31,8 +52,9 @@ export function AnimatePanel() {
     try {
       const result = await animate(projectId, action, {
         frames: frames === "" ? null : frames,
+        direction,
       });
-      setAnimation(result.action, result.fps, result.frames);
+      setAnimation(result.action, result.fps, result.frames, result.direction);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Animation failed.");
     } finally {
@@ -43,6 +65,18 @@ export function AnimatePanel() {
   return (
     <section className="panel">
       <h2>2. Animate</h2>
+
+      <div className="camera-context">
+        <strong>{viewModeLabel(viewMode)} base sprite</strong>
+        <span>Camera mode is fixed for this project. Generate a new base sprite to change it.</span>
+      </div>
+
+      <DirectionControls
+        options={cameraOptions}
+        viewMode={viewMode}
+        direction={direction}
+        onChange={setDirection}
+      />
 
       <label htmlFor="action">Action</label>
       <select
@@ -80,7 +114,10 @@ export function AnimatePanel() {
         </>
       )}
 
-      <button onClick={onAnimate} disabled={!projectId || busy}>
+      <button
+        onClick={onAnimate}
+        disabled={!projectId || busy || cameraOptions.length === 0}
+      >
         {busy ? "Animating…" : "Generate animation"}
       </button>
 

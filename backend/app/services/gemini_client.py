@@ -17,7 +17,7 @@ from typing import Any, Callable
 from PIL import Image
 
 from app.config import get_settings
-from app.models import Style
+from app.models import Direction, Style, ViewMode
 from app.services.prompt_builder import build_generate_prompt
 
 # Substrings that mark a transient, retryable error from the SDK/transport.
@@ -58,6 +58,7 @@ class GeminiClient:
         client: Any,
         model_generate: str,
         model_edit: str,
+        model_text: str,
         max_retries: int = 3,
         backoff_base: float = 0.5,
         timeout_s: float = 120.0,
@@ -66,6 +67,7 @@ class GeminiClient:
         self._client = client
         self._model_generate = model_generate
         self._model_edit = model_edit
+        self._model_text = model_text
         self._max_retries = max(1, max_retries)
         self._backoff_base = backoff_base
         self._timeout_s = timeout_s
@@ -73,11 +75,17 @@ class GeminiClient:
 
     # --- public API ---
     def generate(
-        self, prompt: str, style: Style, reference: Image.Image | None = None
+        self,
+        prompt: str,
+        style: Style,
+        reference: Image.Image | None = None,
+        *,
+        view_mode: ViewMode = ViewMode.SIDE_SCROLLER,
+        direction: Direction = Direction.LEFT,
     ) -> Image.Image:
         from google.genai import types
 
-        text = build_generate_prompt(prompt, style)
+        text = build_generate_prompt(prompt, style, view_mode, direction)
         contents: list[Any] = [text]
         if reference is not None:
             contents.append(
@@ -86,7 +94,8 @@ class GeminiClient:
                 )
             )
         config = self._content_config(types)
-        return self._call(self._model_generate, contents, config)
+        response = self._request(self._model_generate, contents, config)
+        return self._parse_image(response)
 
     def edit(self, base_img: Image.Image, prompt: str) -> Image.Image:
         from google.genai import types
@@ -100,7 +109,48 @@ class GeminiClient:
             prompt,
         ]
         config = self._content_config(types)
-        return self._call(self._model_edit, contents, config)
+        response = self._request(self._model_edit, contents, config)
+        return self._parse_image(response)
+
+    def enhance_prompt(
+        self,
+        prompt: str,
+        style: Style,
+        view_mode: ViewMode = ViewMode.SIDE_SCROLLER,
+        direction: Direction = Direction.LEFT,
+    ) -> str:
+        """Expand a terse subject description for sprite generation.
+
+        This is a preview-only text call. Callers decide whether its visible,
+        editable result is later accepted for image generation.
+        """
+
+        from google.genai import types
+
+        system_instruction = (
+            "Rewrite the user's subject as one concise, sprite-friendly game-art "
+            "description. Preserve the subject and intent. Add concrete visual "
+            "details, silhouette, clothing/materials, and a readable color palette. "
+            "Do not add scenery, camera instructions, explanations, headings, or "
+            "Markdown. Return only the enhanced subject description."
+        )
+        contents = [
+            f"Subject: {prompt.strip()}\n"
+            f"Art style: {style.value}\n"
+            f"View mode: {view_mode.value}\n"
+            f"Direction: {direction.value}"
+        ]
+        config = types.GenerateContentConfig(
+            system_instruction=system_instruction,
+            temperature=0.2,
+            max_output_tokens=300,
+            response_mime_type="text/plain",
+            http_options=types.HttpOptions(
+                timeout=max(1, round(self._timeout_s * 1000))
+            ),
+        )
+        response = self._request(self._model_text, contents, config)
+        return self._parse_text(response)
 
     def _content_config(self, types: Any) -> Any:
         return types.GenerateContentConfig(
@@ -109,7 +159,7 @@ class GeminiClient:
         )
 
     # --- internals ---
-    def _call(self, model: str, contents: list[Any], config: Any) -> Image.Image:
+    def _request(self, model: str, contents: list[Any], config: Any) -> Any:
         last_exc: Exception | None = None
         for attempt in range(self._max_retries):
             try:
@@ -126,7 +176,7 @@ class GeminiClient:
                         f"Gemini call timed out after {self._timeout_s:g}s"
                     ) from exc
                 raise GeminiError(f"Gemini call failed: {exc}") from exc
-            return self._parse_image(response)
+            return response
 
         raise GeminiError(f"Gemini call failed after retries: {last_exc}")
 
@@ -162,6 +212,34 @@ class GeminiClient:
                     raise GeminiError(f"Malformed image data from Gemini: {exc}") from exc
 
         raise GeminiError("Gemini response contained no image data")
+
+    def _parse_text(self, response: Any) -> str:
+        candidates = getattr(response, "candidates", None) or []
+        if not candidates:
+            raise GeminiError("Gemini returned no candidates")
+
+        candidate = candidates[0]
+        finish = str(getattr(candidate, "finish_reason", "") or "")
+        if any(marker in finish.upper() for marker in _SAFETY_MARKERS):
+            raise SafetyBlockedError(
+                "Request was blocked by safety filters — try rephrasing the prompt."
+            )
+
+        result = str(getattr(response, "text", "") or "").strip()
+        if not result:
+            content = getattr(candidate, "content", None)
+            parts = getattr(content, "parts", None) or []
+            result = "\n".join(
+                str(getattr(part, "text", "") or "").strip()
+                for part in parts
+                if getattr(part, "text", None)
+            ).strip()
+        if result.startswith("```") and result.endswith("```"):
+            lines = result.splitlines()
+            result = "\n".join(lines[1:-1]).strip()
+        if not result:
+            raise GeminiError("Gemini response contained no text")
+        return result
 
 
 def _to_png_bytes(img: Image.Image) -> bytes:
@@ -203,6 +281,7 @@ def build_default_client() -> GeminiClient:
         client=sdk,
         model_generate=settings.gemini_model_generate,
         model_edit=settings.gemini_model_edit,
+        model_text=settings.gemini_model_text,
         # Keep compatibility with lightweight settings fakes used by callers
         # that predate the timeout setting; production Settings always exposes it.
         timeout_s=getattr(settings, "gemini_timeout_seconds", 120.0),

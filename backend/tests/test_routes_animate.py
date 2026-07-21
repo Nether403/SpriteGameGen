@@ -6,7 +6,7 @@ from PIL import Image
 
 from app.deps import get_gemini_client, get_store
 from app.main import create_app
-from app.models import Style
+from app.models import Direction, Style, ViewMode
 from app.pipeline.pixelate import PixelateError
 from app.services.gemini_client import GeminiError
 from app.storage.project_store import ProjectStore
@@ -29,7 +29,9 @@ class FakeGemini:
         img.paste(Image.new("RGBA", (20, 20), (255, 0, 0, 255)), (22, 20))
         return img
 
-    def generate(self, prompt, style, reference=None):
+    def generate(
+        self, prompt, style, reference=None, *, view_mode=None, direction=None
+    ):
         return self._sprite()
 
     def edit(self, base_img, prompt):
@@ -69,8 +71,21 @@ async def client(app_and_store):
         yield c
 
 
-async def _generate(client, style="pixel"):
-    resp = await client.post("/generate", data={"prompt": "a knight", "style": style})
+async def _generate(
+    client,
+    style="pixel",
+    view_mode="side_scroller",
+    direction="left",
+):
+    resp = await client.post(
+        "/generate",
+        data={
+            "prompt": "a knight",
+            "style": style,
+            "view_mode": view_mode,
+            "direction": direction,
+        },
+    )
     return resp.json()["project_id"]
 
 
@@ -79,6 +94,50 @@ async def test_presets_lists_actions(client):
     assert resp.status_code == 200
     actions = {p["action"] for p in resp.json()}
     assert {"idle", "walk", "run", "attack", "jump"} <= actions
+
+
+async def test_animation_options_are_camera_aware(client):
+    response = await client.get("/animation-options")
+    assert response.status_code == 200
+    options = {item["view_mode"]: item["directions"] for item in response.json()}
+    assert options["side_scroller"] == ["left", "right"]
+    assert set(options["top_down_2_5d"]) == {item.value for item in Direction}
+
+
+async def test_animate_persists_direction_and_uses_camera_prompt(client, app_and_store):
+    _, store, fake = app_and_store
+    pid = await _generate(
+        client, view_mode="top_down_2_5d", direction="down"
+    )
+
+    response = await client.post(
+        "/animate",
+        json={"project_id": pid, "action": "walk", "frames": 4, "direction": "up_left"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["view_mode"] == "top_down_2_5d"
+    assert response.json()["direction"] == "up_left"
+    project = store.read_manifest(pid)
+    assert project.view_mode is ViewMode.TOP_DOWN_2_5D
+    assert project.direction is Direction.UP_LEFT
+    assert all("top-down" in prompt.lower() for prompt in fake.edit_prompts)
+    assert all("up-left" in prompt.lower() for prompt in fake.edit_prompts)
+
+
+async def test_animate_rejects_invalid_direction_before_edit(client, app_and_store):
+    _, store, fake = app_and_store
+    pid = await _generate(client)
+    original = store.read_manifest(pid)
+
+    response = await client.post(
+        "/animate",
+        json={"project_id": pid, "action": "walk", "direction": "up"},
+    )
+
+    assert response.status_code == 422
+    assert fake.edit_prompts == []
+    assert store.read_manifest(pid) == original
 
 
 async def test_animate_uses_preset_default_frame_count(client, app_and_store):
@@ -233,6 +292,30 @@ async def test_regenerate_frame_replaces_single_frame(client, app_and_store):
     project = store.read_manifest(pid)
     assert len(project.frames) == 4
     assert project.frames[2].status.value == "ok"
+
+
+async def test_regenerate_frame_uses_persisted_camera_context(client, app_and_store):
+    _, _, fake = app_and_store
+    pid = await _generate(
+        client, view_mode="top_down_2_5d", direction="down_right"
+    )
+    await client.post(
+        "/animate",
+        json={
+            "project_id": pid,
+            "action": "walk",
+            "frames": 4,
+            "direction": "down_right",
+        },
+    )
+
+    response = await client.post(
+        "/animate/frame", json={"project_id": pid, "index": 2}
+    )
+
+    assert response.status_code == 200
+    assert "top-down" in fake.edit_prompts[-1].lower()
+    assert "down-right" in fake.edit_prompts[-1].lower()
 
 
 async def test_regenerate_failed_frame_recovers_it(tmp_path):

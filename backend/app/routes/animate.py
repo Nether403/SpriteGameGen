@@ -15,7 +15,16 @@ from PIL import Image
 from pydantic import BaseModel, Field
 
 from app.deps import get_gemini_client, get_store
-from app.models import AnimateRequest, Frame, FrameStatus, Style
+from app.models import (
+    AnimateRequest,
+    Direction,
+    Frame,
+    FrameStatus,
+    Style,
+    ViewMode,
+    directions_for,
+    validate_direction,
+)
 from app.pipeline import background, pixelate, trim
 from app.pipeline.background import BackgroundRemovalError
 from app.pipeline.pixelate import PixelateError
@@ -31,6 +40,17 @@ router = APIRouter()
 @router.get("/presets")
 def presets():
     return prompt_builder.list_presets()
+
+
+@router.get("/animation-options")
+def animation_options():
+    return [
+        {
+            "view_mode": view_mode.value,
+            "directions": [direction.value for direction in directions_for(view_mode)],
+        }
+        for view_mode in ViewMode
+    ]
 
 
 def _resolve_frame_count(preset: dict, requested: int | None) -> int:
@@ -59,6 +79,11 @@ def animate(
         raise HTTPException(status_code=404, detail="project not found")
 
     try:
+        validate_direction(project.view_mode, req.direction)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+    try:
         base = store.load_image(req.project_id, "sprite")
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="project has no base sprite")
@@ -72,7 +97,9 @@ def animate(
     cut_by_index: dict[int, Image.Image] = {}
     failed: set[int] = set()
     for index in range(total):
-        prompt = prompt_builder.frame_prompt(req.action, index, total)
+        prompt = prompt_builder.frame_prompt(
+            req.action, index, total, project.view_mode, req.direction
+        )
         try:
             edited = gemini.edit(base, prompt)
             cut_by_index[index] = background.remove(edited, remover=remover)
@@ -119,12 +146,15 @@ def animate(
     project.frames = frames
     project.action = req.action
     project.fps = req.fps
+    project.direction = req.direction
     store.write_manifest(req.project_id, project)
 
     return {
         "project_id": req.project_id,
         "action": req.action,
         "fps": req.fps,
+        "view_mode": project.view_mode,
+        "direction": project.direction,
         "frames": [f.model_dump() for f in frames],
     }
 
@@ -199,7 +229,13 @@ def regenerate_frame(
         target_size = trim.autocrop(base, padding=0).size
 
     remover = getattr(request.app.state, "remover", None)
-    prompt = prompt_builder.frame_prompt(project.action, req.index, total)
+    prompt = prompt_builder.frame_prompt(
+        project.action,
+        req.index,
+        total,
+        project.view_mode,
+        project.direction,
+    )
     try:
         edited = gemini.edit(base, prompt)
         cut = background.remove(edited, remover=remover)
@@ -303,5 +339,7 @@ def delete_frame(
         "project_id": req.project_id,
         "action": project.action,
         "fps": project.fps,
+        "view_mode": project.view_mode,
+        "direction": project.direction,
         "frames": [f.model_dump() for f in new_frames],
     }

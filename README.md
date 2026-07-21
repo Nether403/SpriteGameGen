@@ -40,6 +40,7 @@ a service-account JSON key — not a `GEMINI_API_KEY`. Set in `.env`:
 | `GOOGLE_CLOUD_REGION` | Vertex region (default `global`) |
 | `GEMINI_MODEL_GENERATE` | Stage 1 model (default `gemini-3.1-flash-image`) |
 | `GEMINI_MODEL_EDIT` | Stage 2 model (default `gemini-3.1-flash-image`) |
+| `GEMINI_MODEL_TEXT` | Optional prompt-preview model (default `gemini-3.5-flash`) |
 | `GEMINI_TIMEOUT_SECONDS` | Per-attempt Gemini request timeout (default `120`) |
 | `PROJECTS_DIR` | Output dir (default `./projects`) |
 
@@ -91,8 +92,11 @@ http://localhost:5173. The saved-project browser loads local projects first; ope
 healthy project to restore its prompt, sprite, animation frames, and export workflow.
 Then work through the three steps:
 
-1. **Generate** — describe the sprite, pick pixel/hi-res, optionally attach a reference.
-2. **Animate** — choose an action preset and frame count, generate the cycle, preview the
-   loop, and regenerate or delete any frames that came out inconsistent.
+1. **Generate** — describe the sprite, pick pixel/hi-res and a game camera, then choose
+   an allowed direction. Prompt enhancement is optional: request a visible preview,
+   edit it, and explicitly accept it before generation. You can also attach a reference.
+2. **Animate** — choose an action preset, direction, and frame count, generate the cycle,
+   preview the loop, and regenerate or delete any frames that came out inconsistent.
+   Side-scrollers allow left/right; top-down/2.5D projects allow all eight directions.
 3. **Export** — pick JSON/XML atlas format, grid columns, and padding, then download the
    packed sheet + atlas.
