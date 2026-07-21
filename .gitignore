@@ -3,6 +3,7 @@
 # NOT a blanket *.json — that would also ignore project.json manifests and
 # frontend config files.
 /project-*.json
+/Azurecredentials.txt
 
 # --- Env ---
 .env
