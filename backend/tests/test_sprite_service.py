@@ -1,4 +1,7 @@
 """Framework-neutral SpriteService behavior."""
+import threading
+import time
+
 from PIL import Image
 import pytest
 
@@ -171,3 +174,37 @@ def test_animation_and_export_return_asset_names_not_urls(tmp_path):
     assert exported.sheet_filename == "sprite_sheet.png"
     assert exported.atlas_filename == "sprite.json"
     assert store.asset_path(pid, exported.sheet_filename).is_file()
+
+
+def test_animation_honors_provider_bounded_concurrency(tmp_path):
+    class ConcurrentProvider:
+        max_concurrency = 3
+
+        def __init__(self):
+            self.active = 0
+            self.peak = 0
+            self.lock = threading.Lock()
+
+        def edit(self, base, prompt, *, pose_reference=None):
+            with self.lock:
+                self.active += 1
+                self.peak = max(self.peak, self.active)
+            time.sleep(0.03)
+            with self.lock:
+                self.active -= 1
+            return Image.new("RGBA", (8, 8), "red")
+
+    store = ProjectStore(tmp_path)
+    pid = _project(store)
+    provider = ConcurrentProvider()
+
+    result = SpriteService(
+        store=store,
+        image_provider=provider,
+        remover=lambda image: image,
+    ).animate(
+        AnimateRequest(project_id=pid, action="walk", frames=6)
+    )
+
+    assert provider.peak == 3
+    assert all(frame.status is FrameStatus.OK for frame in result.frames)

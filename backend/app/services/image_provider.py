@@ -28,6 +28,8 @@ class ImageProviderTimeoutError(ImageProviderError):
 class ImageProvider(Protocol):
     """The image operations required by the sprite workflow."""
 
+    max_concurrency: int
+
     def generate(
         self,
         prompt: str,

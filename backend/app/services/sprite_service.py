@@ -5,6 +5,7 @@ transport conventions. This module intentionally imports neither framework.
 """
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -250,9 +251,7 @@ class SpriteService:
             raise ProjectNotFoundError("project has no base sprite") from exc
 
         total = self._resolve_frame_count(preset, request.frames)
-        cut_by_index: dict[int, Image.Image] = {}
-        failed: set[int] = set()
-        for index in range(total):
+        def generate_frame(index: int) -> Image.Image:
             frame_prompt = prompt_builder.frame_prompt(
                 request.action,
                 index,
@@ -260,25 +259,49 @@ class SpriteService:
                 project.view_mode,
                 request.direction,
             )
+            return self._edit_frame(
+                base,
+                frame_prompt,
+                request.action,
+                index,
+                total,
+                project.view_mode,
+                request.direction,
+            )
+
+        cut_by_index: dict[int, Image.Image] = {}
+        failed: set[int] = set()
+
+        def process_result(index: int, edited: Image.Image) -> None:
             try:
-                edited = self._edit_frame(
-                    base,
-                    frame_prompt,
-                    request.action,
-                    index,
-                    total,
-                    project.view_mode,
-                    request.direction,
-                )
                 cut_by_index[index] = background.remove(
                     edited, remover=self.remover
                 )
-            except (
-                ImageProviderError,
-                ImageSafetyBlockedError,
-                BackgroundRemovalError,
-            ):
+            except BackgroundRemovalError:
                 failed.add(index)
+
+        max_workers = max(1, int(getattr(self.image_provider, "max_concurrency", 1)))
+        if max_workers == 1:
+            for index in range(total):
+                try:
+                    process_result(index, generate_frame(index))
+                except (ImageProviderError, ImageSafetyBlockedError):
+                    failed.add(index)
+        else:
+            # Only network-bound provider calls run concurrently. Background
+            # removal and deterministic post-processing remain serial because
+            # their native inference sessions are not guaranteed thread-safe.
+            with ThreadPoolExecutor(max_workers=min(max_workers, total)) as executor:
+                future_by_index = {
+                    executor.submit(generate_frame, index): index
+                    for index in range(total)
+                }
+                for future in as_completed(future_by_index):
+                    index = future_by_index[future]
+                    try:
+                        process_result(index, future.result())
+                    except (ImageProviderError, ImageSafetyBlockedError):
+                        failed.add(index)
 
         ok_indices = sorted(cut_by_index)
         aligned_by_index: dict[int, Image.Image] = {}

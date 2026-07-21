@@ -62,6 +62,10 @@ def _is_quota_exhausted(exc: Exception) -> bool:
 
 
 class GeminiClient:
+    # Vertex's current image quota is intentionally used sequentially. Providers
+    # with more headroom can opt into bounded parallel frame edits.
+    max_concurrency = 1
+
     def __init__(
         self,
         *,
