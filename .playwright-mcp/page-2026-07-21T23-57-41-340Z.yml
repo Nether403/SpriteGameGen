@@ -1,0 +1,341 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - banner [ref=e3]:
+      - generic [ref=e4]:
+        - link "AutoSprite uto Sprite" [ref=e5] [cursor=pointer]:
+          - /url: /
+          - img "AutoSprite" [ref=e6]
+          - generic [ref=e7]:
+            - generic [ref=e8]: uto
+            - generic [ref=e9]: Sprite
+        - navigation [ref=e10]:
+          - button "Create" [ref=e12] [cursor=pointer]
+          - button "Developers" [ref=e16] [cursor=pointer]
+          - button "Resources" [ref=e20] [cursor=pointer]
+          - link "Engines" [ref=e23] [cursor=pointer]:
+            - /url: /sprite-sheet-generator#engine-workflows
+          - link "Docs" [ref=e24] [cursor=pointer]:
+            - /url: /docs
+          - link "Pricing" [ref=e25] [cursor=pointer]:
+            - /url: /pricing
+      - link "Sign In" [ref=e27] [cursor=pointer]:
+        - /url: /app
+    - generic [ref=e28]:
+      - button [ref=e29] [cursor=pointer]
+      - complementary [ref=e31]:
+        - generic [ref=e32]:
+          - link "AutoSprite AutoSprite" [ref=e33] [cursor=pointer]:
+            - /url: /
+            - img "AutoSprite" [ref=e34]
+            - generic [ref=e35]: AutoSprite
+          - paragraph [ref=e36]: Documentation
+        - navigation [ref=e37]:
+          - link "Introduction" [ref=e38] [cursor=pointer]:
+            - /url: /docs/introduction
+          - link "How to Use" [ref=e42] [cursor=pointer]:
+            - /url: /docs/how-to-use
+          - link "FAQ" [ref=e46] [cursor=pointer]:
+            - /url: /docs/faq
+          - generic [ref=e51]:
+            - button "GUIDES" [ref=e52] [cursor=pointer]
+            - generic [ref=e55]:
+              - link "Create a Character" [ref=e56] [cursor=pointer]:
+                - /url: /docs/guide-create-character
+              - link "Custom Animations" [ref=e61] [cursor=pointer]:
+                - /url: /docs/guide-advanced-creation
+              - link "Asset Library" [ref=e65] [cursor=pointer]:
+                - /url: /docs/guide-asset-library
+              - link "Advanced Mode" [ref=e69] [cursor=pointer]:
+                - /url: /docs/guide-advanced-mode
+          - generic [ref=e75]:
+            - button "REFERENCE" [ref=e76] [cursor=pointer]
+            - generic [ref=e79]:
+              - link "Animation Types" [ref=e80] [cursor=pointer]:
+                - /url: /docs/reference-animation-types
+              - link "Export Formats" [ref=e84] [cursor=pointer]:
+                - /url: /docs/reference-export-formats
+              - link "Credits & Pricing" [ref=e89] [cursor=pointer]:
+                - /url: /docs/reference-credits
+          - generic [ref=e96]:
+            - button "API REFERENCE" [ref=e97] [cursor=pointer]
+            - generic [ref=e100]:
+              - link "API Reference" [ref=e101] [cursor=pointer]:
+                - /url: /docs/api
+              - link "Errors, Limits & Credits" [ref=e106] [cursor=pointer]:
+                - /url: /docs/api-overview
+              - link "Quick Start" [ref=e111] [cursor=pointer]:
+                - /url: /docs/api-quickstart
+              - link "Characters" [ref=e115] [cursor=pointer]:
+                - /url: /docs/api-characters
+              - link "Assets" [ref=e120] [cursor=pointer]:
+                - /url: /docs/api-assets
+              - link "Spritesheets" [ref=e127] [cursor=pointer]:
+                - /url: /docs/api-spritesheets
+              - link "Poses" [ref=e131] [cursor=pointer]:
+                - /url: /docs/api-poses
+              - link "Jobs" [ref=e135] [cursor=pointer]:
+                - /url: /docs/api-jobs
+          - generic [ref=e139]:
+            - button "INTEGRATIONS" [ref=e140] [cursor=pointer]
+            - generic [ref=e143]:
+              - link "MCP" [ref=e144] [cursor=pointer]:
+                - /url: /docs/mcp
+              - link "Unity" [ref=e148] [cursor=pointer]:
+                - /url: /docs/integration-unity
+              - link "Unity Extension" [ref=e152] [cursor=pointer]:
+                - /url: /docs/integration-unity-extension
+              - link "Godot" [ref=e156] [cursor=pointer]:
+                - /url: /docs/integration-godot
+              - link "GameMaker" [ref=e160] [cursor=pointer]:
+                - /url: /docs/integration-gamemaker
+              - link "Phaser" [ref=e164] [cursor=pointer]:
+                - /url: /docs/integration-phaser
+              - link "RPG Maker" [ref=e168] [cursor=pointer]:
+                - /url: /docs/integration-rpg-maker
+              - link "Redbean" [ref=e172] [cursor=pointer]:
+                - /url: /docs/integration-redbean
+              - link "Astrocade" [ref=e176] [cursor=pointer]:
+                - /url: /docs/integration-astrocade
+      - main [ref=e180]:
+        - generic [ref=e182]:
+          - button "All Docs" [ref=e183] [cursor=pointer]
+          - link "Launch App" [ref=e186] [cursor=pointer]:
+            - /url: /app
+        - generic [ref=e187]:
+          - heading "Custom Animations" [level=1] [ref=e188]
+          - paragraph [ref=e189]: Create your own custom animations with the step-by-step wizard. Define poses, set timing, and generate unique movements.
+          - article [ref=e190]:
+            - paragraph [ref=e191]:
+              - text: Beyond the preset animations (idle, walk, run, jump, attack), you can create
+              - strong [ref=e192]: custom animations
+              - text: with any action you describe using the Custom Animation Wizard.
+            - heading "Starting the Wizard" [level=2] [ref=e193]
+            - generic [ref=e196]:
+              - heading "Open Custom Animation" [level=3] [ref=e197]
+              - paragraph [ref=e199]:
+                - text: In the animation selection panel, click the
+                - strong [ref=e200]: "\"+ Custom\""
+                - text: button to open the Custom Animation Wizard.
+            - 'heading "Wizard Step 1: Name Your Animation" [level=2] [ref=e201]'
+            - figure "Enter a unique name for your animation" [ref=e202]:
+              - img "Custom animation name input" [ref=e204]
+            - paragraph [ref=e206]: "Give your animation a unique, descriptive name:"
+            - list [ref=e207]:
+              - listitem [ref=e208]:
+                - code [ref=e209]: "`hero_special_attack`"
+              - listitem [ref=e210]:
+                - code [ref=e211]: "`cast_fireball`"
+              - listitem [ref=e212]:
+                - code [ref=e213]: "`pick_up_item`"
+              - listitem [ref=e214]:
+                - code [ref=e215]: "`celebrate_victory`"
+            - generic [ref=e217]:
+              - generic [ref=e218]: ℹ️
+              - paragraph [ref=e220]: Reserved names like "idle", "walk", "run", "jump", and "attack" cannot be used for custom animations.
+            - 'heading "Wizard Step 2: Choose Frame Generation Mode" [level=2] [ref=e221]'
+            - figure "Choose how to generate your starting and ending frames" [ref=e222]:
+              - img "Frame generation mode selection" [ref=e224]
+            - paragraph [ref=e226]: "Select how you want to create the starting and ending frames:"
+            - table [ref=e228]:
+              - rowgroup [ref=e229]:
+                - row [ref=e230]:
+                  - columnheader "Mode" [ref=e231]
+                  - columnheader "Description" [ref=e232]
+                  - columnheader "Best For" [ref=e233]
+              - rowgroup [ref=e234]:
+                - row [ref=e235]:
+                  - cell [ref=e236]:
+                    - strong [ref=e237]: Let AutoSprite handle it
+                  - cell "AutoSprite generates frames based on your action prompt" [ref=e238]
+                  - cell "Quick results, standard actions" [ref=e239]
+                - row [ref=e240]:
+                  - cell [ref=e241]:
+                    - strong [ref=e242]: Custom First Frame Only
+                  - cell "You define the starting pose, animation flows naturally" [ref=e243]
+                  - cell "Specific starting positions" [ref=e244]
+                - row [ref=e245]:
+                  - cell [ref=e246]:
+                    - strong [ref=e247]: Custom First & Last Frame
+                  - cell "Full control over both starting and ending poses" [ref=e248]
+                  - cell "Complex or precise animations" [ref=e249]
+            - generic [ref=e251]:
+              - generic [ref=e252]: ✨
+              - generic [ref=e253]:
+                - strong [ref=e254]: "Pro Tip:"
+                - paragraph [ref=e255]: Start with "Let AutoSprite handle it" for your first custom animation. You can always use the advanced options later.
+            - 'heading "Wizard Step 3: First Frame (Custom Modes Only)" [level=2] [ref=e256]'
+            - figure "Generate or upload your starting pose" [ref=e257]:
+              - img "First frame generator" [ref=e259]
+            - paragraph [ref=e261]: If you chose a custom frame mode, you'll define the starting pose.
+            - heading "Generate or Upload" [level=3] [ref=e262]
+            - paragraph [ref=e263]: "You have two options:"
+            - list [ref=e264]:
+              - listitem [ref=e265]:
+                - strong [ref=e266]: Generate
+                - text: "- Describe the pose with a text prompt and AI generates it"
+              - listitem [ref=e267]:
+                - strong [ref=e268]: Upload
+                - text: "- Upload your own image for the first frame"
+            - heading "Generation Tips" [level=3] [ref=e269]
+            - paragraph [ref=e270]:
+              - text: Use the
+              - strong [ref=e271]: Quick Add
+              - text: "presets to build your prompt:"
+            - list [ref=e272]:
+              - listitem [ref=e273]:
+                - code [ref=e274]: "`standing`"
+              - listitem [ref=e275]:
+                - code [ref=e276]: "`relaxed`"
+              - listitem [ref=e277]:
+                - code [ref=e278]: "`ready stance`"
+              - listitem [ref=e279]:
+                - code [ref=e280]: "`facing right`"
+            - paragraph [ref=e281]: Or write your own detailed description of the pose.
+            - generic [ref=e283]:
+              - generic [ref=e284]: 💡
+              - paragraph [ref=e286]:
+                - text: The
+                - strong [ref=e287]: Prompt Helper
+                - text: toggle adds extra instructions to ensure the generated frame works well with AutoSprite (grey background, centering, consistent proportions). Keep it enabled for best results.
+            - 'heading "Wizard Step 4: Loop Choice (Custom First & Last Mode)" [level=2] [ref=e288]'
+            - figure "Choose whether to loop back to the first frame or create a unique ending" [ref=e289]:
+              - img "Loop choice selection" [ref=e291]
+            - paragraph [ref=e293]: "Choose how to handle the last frame:"
+            - 'heading "Option 1: Use First Frame as Last (Loop)" [level=3] [ref=e294]'
+            - paragraph [ref=e295]:
+              - text: Creates a
+              - strong [ref=e296]: seamless loop
+              - text: "where the animation returns to the starting pose. Perfect for:"
+            - list [ref=e297]:
+              - listitem [ref=e298]: Idle animations
+              - listitem [ref=e299]: Breathing/floating effects
+              - listitem [ref=e300]: Repeating actions
+            - 'heading "Option 2: Generate Unique Last Frame" [level=3] [ref=e301]'
+            - paragraph [ref=e302]:
+              - text: Create a
+              - strong [ref=e303]: different ending pose
+              - text: ". Perfect for:"
+            - list [ref=e304]:
+              - listitem [ref=e305]: One-shot actions (attacks, jumps)
+              - listitem [ref=e306]: Transformation effects
+              - listitem [ref=e307]: Animations that end in a different state
+            - 'heading "Wizard Step 5: Last Frame (If Not Looping)" [level=2] [ref=e308]'
+            - figure "Define the ending pose for your animation" [ref=e309]:
+              - img "Last frame generator" [ref=e311]
+            - paragraph [ref=e313]: "If you chose to generate a unique last frame:"
+            - heading "Generation Tips" [level=3] [ref=e314]
+            - paragraph [ref=e315]:
+              - text: Use the
+              - strong [ref=e316]: Quick Add
+              - text: "presets:"
+            - list [ref=e317]:
+              - listitem [ref=e318]:
+                - code [ref=e319]: "`full extension`"
+              - listitem [ref=e320]:
+                - code [ref=e321]: "`peak action`"
+              - listitem [ref=e322]:
+                - code [ref=e323]: "`dynamic`"
+              - listitem [ref=e324]:
+                - code [ref=e325]: "`impact`"
+            - heading "Reference Toggle" [level=3] [ref=e326]
+            - paragraph [ref=e327]:
+              - text: Enable
+              - strong [ref=e328]: "\"Using first frame as reference\""
+              - text: to ensure the last frame matches the style and details of your first frame for visual consistency.
+            - 'heading "Wizard Step 6: Describe the Action" [level=2] [ref=e329]'
+            - figure "Describe the motion that happens between frames" [ref=e330]:
+              - img "Action prompt screen" [ref=e332]
+            - paragraph [ref=e334]:
+              - text: This is where you describe
+              - strong [ref=e335]: what happens
+              - text: during the animation - the motion between the first and last frames.
+            - heading "Good Action Prompts" [level=3] [ref=e336]
+            - list [ref=e337]:
+              - listitem [ref=e338]: "\"Character raises both arms and channels glowing energy between hands\""
+              - listitem [ref=e339]: "\"Character swings sword in a wide horizontal arc from right to left\""
+              - listitem [ref=e340]: "\"Character crouches low, then springs upward with arms raised\""
+              - listitem [ref=e341]: "\"Character pulls back fist, then punches forward with full force\""
+            - heading "Quick Add Presets" [level=3] [ref=e342]
+            - list [ref=e343]:
+              - listitem [ref=e344]:
+                - code [ref=e345]: "`charges energy`"
+              - listitem [ref=e346]:
+                - code [ref=e347]: "`swings weapon`"
+              - listitem [ref=e348]:
+                - code [ref=e349]: "`leaps forward`"
+              - listitem [ref=e350]:
+                - code [ref=e351]: "`casts spell`"
+              - listitem [ref=e352]:
+                - code [ref=e353]: "`unleashes blast`"
+            - generic [ref=e355]:
+              - generic [ref=e356]: ✨
+              - generic [ref=e357]:
+                - strong [ref=e358]: "Pro Tip:"
+                - paragraph [ref=e359]: Be specific about body movement and direction. Instead of "attacks," describe the exact motion like "slashes downward with both hands on sword hilt."
+            - 'heading "Wizard Step 7: Review & Create" [level=2] [ref=e360]'
+            - figure "Review your animation configuration before creating" [ref=e361]:
+              - img "Review screen" [ref=e363]
+            - paragraph [ref=e365]: "Review your configuration:"
+            - list [ref=e366]:
+              - listitem [ref=e367]: Animation name
+              - listitem [ref=e368]: First frame (custom or auto)
+              - listitem [ref=e369]: Last frame (custom, auto, or loop)
+              - listitem [ref=e370]: Action description
+            - paragraph [ref=e371]:
+              - text: Click
+              - strong [ref=e372]: "\"Create Animation\""
+              - text: to save. The animation is now ready to generate.
+            - heading "After Creation" [level=2] [ref=e373]
+            - paragraph [ref=e374]: "Once your custom animation is created:"
+            - list [ref=e375]:
+              - listitem [ref=e376]:
+                - strong [ref=e377]: Select it
+                - text: in the animation panel (it appears with your other animations)
+              - listitem [ref=e378]:
+                - strong [ref=e379]: Generate
+                - text: "- Click Generate to create the animation frames"
+              - listitem [ref=e380]:
+                - strong [ref=e381]: Preview
+                - text: "- Watch it in the preview player"
+              - listitem [ref=e382]:
+                - strong [ref=e383]: Regenerate
+                - text: if needed - Each regeneration costs credits
+            - heading "Tips for Great Custom Animations" [level=2] [ref=e384]
+            - heading "Writing Effective Prompts" [level=3] [ref=e385]
+            - table [ref=e387]:
+              - rowgroup [ref=e388]:
+                - row [ref=e389]:
+                  - columnheader "Do" [ref=e390]
+                  - columnheader "Don't" [ref=e391]
+              - rowgroup [ref=e392]:
+                - row [ref=e393]:
+                  - cell "\"raises sword overhead and slashes down\"" [ref=e394]
+                  - cell "\"attacks\"" [ref=e395]
+                - row [ref=e396]:
+                  - cell "\"leans back, then throws fireball forward\"" [ref=e397]
+                  - cell "\"casts spell\"" [ref=e398]
+                - row [ref=e399]:
+                  - cell "\"jumps and spins 360 degrees\"" [ref=e400]
+                  - cell "\"does a cool move\"" [ref=e401]
+            - heading "When to Use Each Mode" [level=3] [ref=e402]
+            - list [ref=e403]:
+              - listitem [ref=e404]:
+                - strong [ref=e405]: Auto Mode
+                - text: ": Standard actions, quick iteration, testing ideas"
+              - listitem [ref=e406]:
+                - strong [ref=e407]: Custom First Only
+                - text: ": When starting pose matters but ending is flexible"
+              - listitem [ref=e408]:
+                - strong [ref=e409]: Custom First & Last
+                - text: ": Precise control, looping animations, specific poses required"
+          - navigation [ref=e410]:
+            - link "Create a Character" [ref=e411] [cursor=pointer]:
+              - /url: /docs/guide-create-character
+            - link "Asset Library" [ref=e415] [cursor=pointer]:
+              - /url: /docs/guide-asset-library
+        - paragraph [ref=e420]:
+          - text: Need help? Join our
+          - link "Discord" [ref=e421] [cursor=pointer]:
+            - /url: https://discord.gg/h2eFPcNGxx
+          - text: or email hello@autosprite.io
+  - alert [ref=e422]
