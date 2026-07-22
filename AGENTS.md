@@ -22,6 +22,9 @@ installs to `~/.local/bin` (already on `PATH` via `~/.bashrc`).
   `uv run python ../scripts/doctor.py`, `uv run python ../scripts/smoke_mcp.py`;
   frontend `npm test` and `npm run build`. Backend tests must stay deterministic and must
   not make paid provider calls (mock providers, as existing tests do).
+- Provider rate limits (when real keys are configured): Azure ~10 images/min, Vertex/Gemini
+  ~2 images/min. Pace live generate/animate runs accordingly (animate makes one image call
+  per frame), especially on Vertex.
 - To exercise the credential-free creative core end-to-end without paid APIs, follow the
   test pattern: `create_app(remover=<fake>)` with `get_gemini_client` overridden by a fake
   provider (see `backend/tests/test_export_multi.py`), then generate/animate/export. This

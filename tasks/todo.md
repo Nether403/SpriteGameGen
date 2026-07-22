@@ -18,7 +18,7 @@
 - [x] Backend full suite passes
 - [x] Frontend full suite and build pass
 - [x] Backend/frontend dependency checks pass
-- [ ] Secret scan passes without exposing values
+- [x] Secret scan passes without exposing values
 - [x] Doctor runs without provider credentials
 - [x] Windows and Linux CI remain credential-free
 
@@ -88,7 +88,7 @@
 
 - [x] Same project revision produces byte-identical bundle
 - [x] Scope-specific failure gating passes
-- [ ] Godot headless import/load assertions pass
+- [x] Godot headless import/load assertions pass
 - [x] Full backend/frontend/MCP verification passes
 
 ## Phase 4: Action Packs, Recipes, CLI, and Batch
@@ -151,10 +151,10 @@
 - [x] `frontend`: production build
 - [x] `frontend`: production dependency audit
 - [x] MCP: credential-free stdio smoke
-- [ ] Godot: pinned headless import/load smoke
-- [ ] Repository: redacted secret scan
+- [x] Godot: pinned headless import/load smoke
+- [x] Repository: redacted secret scan
 - [x] Repository: dependency-license check
 - [x] Repository: `git diff --check`
 - [ ] Manual: legacy project migration and complete character workflow
-- [ ] Manual: configured cloud provider live acceptance
+- [x] Manual: configured cloud provider live acceptance
 - [ ] Manual: ComfyUI promotion matrix for advertised capabilities
