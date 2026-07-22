@@ -42,21 +42,25 @@ export function ProjectBrowser() {
 
   useEffect(() => {
     const controller = new AbortController();
+    let active = true;
     setLoading(true);
     setError(null);
     listProjects({ signal: controller.signal })
       .then((items) => {
+        if (!active) return;
         setProjects(items);
       })
       .catch((reason) => {
-        if (!isAbortError(reason)) {
-          setError(reason instanceof Error ? reason.message : "Could not load projects.");
-        }
+        if (!active || isAbortError(reason)) return;
+        setError(reason instanceof Error ? reason.message : "Could not load projects.");
       })
       .finally(() => {
-        if (!controller.signal.aborted) setLoading(false);
+        if (active) setLoading(false);
       });
-    return () => controller.abort();
+    return () => {
+      active = false;
+      controller.abort();
+    };
   }, [catalogRevision, refreshNonce]);
 
   useEffect(() => () => requestRef.current?.abort(), []);
