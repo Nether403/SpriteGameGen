@@ -1,6 +1,43 @@
 {
-  "generated_at": "2026-07-21T20:13:56.222063+00:00",
+  "generated_at": "2026-07-22T08:40:51.066307+00:00",
   "nodes": {
+    "backend_app_services_sprite_service_spriteservice_edit_frame": {
+      "code_fingerprint": "4818b1b3e0b30eda4ed489dc73a427f54cbd857a14112cd7aab503a63deea19b",
+      "label": "._edit_frame()",
+      "last": "2026-07-21T20:22:43.411078+00:00",
+      "provenance": [
+        {
+          "date": "2026-07-21T20:22:43.411078+00:00",
+          "outcome": "useful",
+          "q": "How does frame_prompt and partial failure concurrency work in animate?"
+        },
+        {
+          "date": "2026-07-21T20:21:18.226949+00:00",
+          "outcome": "useful",
+          "q": "How does _edit_frame reach pose reference and Gemini?"
+        }
+      ],
+      "score": 1.976430578,
+      "source_file": "backend/app/services/sprite_service.py",
+      "status": "preferred",
+      "uses": 2
+    },
+    "backend_app_services_sprite_service_spriteservice_export_sheet": {
+      "code_fingerprint": "4818b1b3e0b30eda4ed489dc73a427f54cbd857a14112cd7aab503a63deea19b",
+      "label": ".export_sheet()",
+      "last": "2026-07-21T20:24:40.488780+00:00",
+      "provenance": [
+        {
+          "date": "2026-07-21T20:24:40.488780+00:00",
+          "outcome": "useful",
+          "q": "How does export failed-frame gate and regenerate persisted camera work?"
+        }
+      ],
+      "score": 0.988257485,
+      "source_file": "backend/app/services/sprite_service.py",
+      "status": "tentative",
+      "uses": 1
+    },
     "graphify_out_memory_query_20260721_114540_assess_loading_and_per_frame_progress__partial_fai_animatepanel": {
       "code_fingerprint": "6d5ce32f268c5b08c765f0d326edf014a4e26c80690bd43d685b5d87b29f52bc",
       "label": "AnimatePanel",
@@ -12,7 +49,7 @@
           "q": "Assess loading and per-frame progress, partial-failure summaries, an opt-in prompt enhancer, directional animation controls, and a thin MCP server for SpriteGameGen."
         }
       ],
-      "score": 0.991877975,
+      "score": 0.980061966,
       "source_file": "graphify-out/memory/query_20260721_114540_assess_loading_and_per_frame_progress__partial_fai.md",
       "status": "tentative",
       "uses": 1
@@ -28,7 +65,7 @@
           "q": "Assess loading and per-frame progress, partial-failure summaries, an opt-in prompt enhancer, directional animation controls, and a thin MCP server for SpriteGameGen."
         }
       ],
-      "score": 0.991877975,
+      "score": 0.980061966,
       "source_file": "graphify-out/memory/query_20260721_114540_assess_loading_and_per_frame_progress__partial_fai.md",
       "status": "tentative",
       "uses": 1
@@ -44,8 +81,24 @@
           "q": "Assess loading and per-frame progress, partial-failure summaries, an opt-in prompt enhancer, directional animation controls, and a thin MCP server for SpriteGameGen."
         }
       ],
-      "score": 0.991877975,
+      "score": 0.980061966,
       "source_file": "graphify-out/memory/query_20260721_114540_assess_loading_and_per_frame_progress__partial_fai.md",
+      "status": "tentative",
+      "uses": 1
+    },
+    "graphify_out_memory_query_20260721_201841_why_does_spriteservice_bridge_mcp_and_http_routes_default_service": {
+      "code_fingerprint": "a2d428838723e458a2219fda1805c7cb50572e3c09ef9cf5ffe1c5d30ede0c4f",
+      "label": "_default_service()",
+      "last": "2026-07-21T20:18:41.209978+00:00",
+      "provenance": [
+        {
+          "date": "2026-07-21T20:18:41.209978+00:00",
+          "outcome": "useful",
+          "q": "Why does ProjectStore bridge so many communities?"
+        }
+      ],
+      "score": 0.98816254,
+      "source_file": "graphify-out/memory/query_20260721_201841_why_does_spriteservice_bridge_mcp_and_http_routes.md",
       "status": "tentative",
       "uses": 1
     }
