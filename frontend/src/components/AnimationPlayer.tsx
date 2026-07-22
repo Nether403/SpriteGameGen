@@ -4,22 +4,33 @@
 import { useEffect, useRef, useState } from "react";
 
 import { useProjectStore } from "../state/project";
-import { frameAt } from "./playback";
+import { frameAtDurations } from "./playback";
 
 const CANVAS_SIZE = 240;
 
 export function AnimationPlayer() {
-  const { frames, fps, projectId, action } = useProjectStore();
+  const { frames, fps, projectId, action, clips, activeClipId } = useProjectStore();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [playing, setPlaying] = useState(true);
   const [previewFps, setPreviewFps] = useState(fps);
+  const [background, setBackground] = useState("checker");
+  const activeClip = activeClipId ? clips[activeClipId] : undefined;
 
   useEffect(() => setPreviewFps(fps), [projectId, action, fps]);
 
   // Only OK frames are playable; their urls drive the drawn images.
-  const okUrls = frames
-    .filter((f) => f.status === "ok" && f.url)
-    .map((f) => f.url as string);
+  const playable = frames.filter((frame) => {
+    const inLoop = !activeClip || (
+      frame.index >= activeClip.loop_start
+      && frame.index <= (activeClip.loop_end ?? frames.length - 1)
+    );
+    return inLoop && frame.enabled !== false && frame.status === "ok" && frame.url;
+  });
+  const okUrls = playable.map((frame) => frame.url as string);
+  const durations = playable.map((frame) => {
+    const persisted = frame.duration_ms ?? 1000 / fps;
+    return persisted * (fps / previewFps);
+  });
 
   // Preload frame images once per url set.
   const imagesRef = useRef<HTMLImageElement[]>([]);
@@ -41,7 +52,11 @@ export function AnimationPlayer() {
     let start = 0;
     const draw = (now: number) => {
       if (start === 0) start = now;
-      const index = frameAt(now - start, previewFps, okUrls.length);
+      const index = frameAtDurations(
+        now - start,
+        durations,
+        (activeClip?.loop_mode ?? "loop") === "loop",
+      );
       const img = imagesRef.current[index];
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       if (img && img.complete && img.naturalWidth > 0) {
@@ -59,7 +74,7 @@ export function AnimationPlayer() {
     };
     raf = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(raf);
-  }, [playing, previewFps, okUrls.length, okUrls.join("|")]);
+  }, [playing, previewFps, activeClip?.loop_mode, okUrls.length, okUrls.join("|"), durations.join("|")]);
 
   if (frames.length === 0) return null;
 
@@ -69,7 +84,7 @@ export function AnimationPlayer() {
       {okUrls.length === 0 ? (
         <p className="hint">No playable frames yet.</p>
       ) : (
-        <div className="preview">
+        <div className={`preview preview-${background}`}>
           <canvas
             ref={canvasRef}
             width={CANVAS_SIZE}
@@ -96,6 +111,14 @@ export function AnimationPlayer() {
           onChange={(e) => setPreviewFps(Number(e.target.value))}
         />
       </div>
+      <label htmlFor="preview-background">Preview background</label>
+      <select id="preview-background" value={background} onChange={(event) => setBackground(event.target.value)}>
+        <option value="checker">Checker</option>
+        <option value="light">Light</option>
+        <option value="dark">Dark</option>
+        <option value="green">Green screen</option>
+        <option value="magenta">Magenta screen</option>
+      </select>
     </div>
   );
 }

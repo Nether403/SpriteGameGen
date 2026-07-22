@@ -13,6 +13,7 @@ from fastapi import Depends
 from app.config import ProviderReadiness, get_settings
 from app.services.azure_image_provider import AzureImageProvider
 from app.services.gemini_client import GeminiClient, build_default_client
+from app.services.comfyui_provider import ComfyUIProvider
 from app.services.provider_selection import ProviderRegistry
 from app.storage.project_store import ProjectStore
 
@@ -46,6 +47,19 @@ def _default_azure() -> AzureImageProvider | None:
     )
 
 
+@lru_cache(maxsize=1)
+def _default_comfyui() -> ComfyUIProvider | None:
+    settings = get_settings()
+    if not settings.comfyui_readiness().available:
+        return None
+    return ComfyUIProvider(
+        base_url=settings.comfyui_url,
+        descriptor_path=settings.comfyui_workflow_descriptor,
+        timeout_s=settings.comfyui_timeout_seconds,
+        poll_interval_s=settings.comfyui_poll_interval_seconds,
+    )
+
+
 def get_store() -> ProjectStore:
     """Provide the project store (overridden in tests)."""
     return _default_store()
@@ -61,22 +75,28 @@ def get_azure_image_provider() -> AzureImageProvider | None:
     return _default_azure()
 
 
+def get_comfyui_provider() -> ComfyUIProvider | None:
+    return _default_comfyui()
+
+
 def build_provider_registry() -> ProviderRegistry:
     """Build the registry outside FastAPI dependency injection."""
 
     return ProviderRegistry(
         gemini=get_gemini_client(),
         azure=get_azure_image_provider(),
+        comfyui=get_comfyui_provider(),
     )
 
 
 def get_provider_registry(
     gemini: GeminiClient | None = Depends(get_gemini_client),
     azure: AzureImageProvider | None = Depends(get_azure_image_provider),
+    comfyui: ComfyUIProvider | None = Depends(get_comfyui_provider),
 ) -> ProviderRegistry:
     """Provide the shared image-provider selection registry."""
 
-    return ProviderRegistry(gemini=gemini, azure=azure)
+    return ProviderRegistry(gemini=gemini, azure=azure, comfyui=comfyui)
 
 
 def get_provider_availability() -> dict[str, ProviderReadiness]:

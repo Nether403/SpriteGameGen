@@ -11,6 +11,31 @@ from PIL import Image, ImageDraw
 
 from app.models import Direction
 
+
+def declarative_pose_reference(
+    points: list[tuple[float, float]],
+    direction: Direction,
+    *,
+    size: int = 256,
+) -> Image.Image:
+    """Render normalized pack data as a simple pose-only guide."""
+
+    image = Image.new("RGBA", (size, size), (255, 255, 255, 255))
+    draw = ImageDraw.Draw(image)
+    resolved = [
+        (
+            int((1 - x if direction is Direction.LEFT else x) * (size - 1)),
+            int(y * (size - 1)),
+        )
+        for x, y in points
+    ]
+    if len(resolved) >= 2:
+        draw.line(resolved, fill=(20, 20, 20, 255), width=max(2, size // 48))
+    radius = max(3, size // 40)
+    for x, y in resolved:
+        draw.ellipse((x - radius, y - radius, x + radius, y + radius), fill=(20, 20, 20, 255))
+    return image
+
 _SIZE = 256
 _GROUND_Y = 226
 

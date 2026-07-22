@@ -15,6 +15,7 @@ import os
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from pydantic import Field, ValidationError, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -62,8 +63,15 @@ class Settings(BaseSettings):
     azure_image_max_retries: int = Field(default=2, ge=1, le=5)
     azure_image_max_concurrency: int = Field(default=3, ge=1, le=10)
 
+    # --- Optional operator-owned local ComfyUI server ---
+    comfyui_url: str = Field(default="")
+    comfyui_workflow_descriptor: str = Field(default="")
+    comfyui_timeout_seconds: float = Field(default=180.0, gt=0, le=3600)
+    comfyui_poll_interval_seconds: float = Field(default=0.25, gt=0, le=10)
+
     # --- Storage / limits ---
     projects_dir: str = Field(default="./projects")
+    action_packs_dir: str = Field(default="")
     max_upload_bytes: int = Field(default=10 * 1024 * 1024, gt=0)  # 10 MiB
     creative_operation_timeout_seconds: float = Field(default=900.0, gt=0, le=3600)
     creative_operation_max_concurrency: int = Field(default=2, ge=1, le=32)
@@ -89,10 +97,7 @@ class Settings(BaseSettings):
             if not credentials.is_file():
                 return ProviderReadiness(
                     available=False,
-                    detail=(
-                        "GOOGLE_APPLICATION_CREDENTIALS points at a missing file: "
-                        f"{credentials}"
-                    ),
+                    detail="GOOGLE_APPLICATION_CREDENTIALS points at a missing file",
                 )
         if not self.google_cloud_project.strip():
             return ProviderReadiness(
@@ -140,7 +145,23 @@ class Settings(BaseSettings):
         return {
             "gemini": self.gemini_readiness(),
             "azure": self.azure_readiness(),
+            "comfyui": self.comfyui_readiness(),
         }
+
+    def comfyui_readiness(self) -> ProviderReadiness:
+        if not self.comfyui_url.strip() and not self.comfyui_workflow_descriptor.strip():
+            return ProviderReadiness(False, "ComfyUI is not configured")
+        if not self.comfyui_url.strip() or not self.comfyui_workflow_descriptor.strip():
+            return ProviderReadiness(False, "ComfyUI configuration is incomplete")
+        try:
+            from app.services.comfyui_provider import validate_loopback_url
+
+            validate_loopback_url(self.comfyui_url)
+        except ValueError:
+            return ProviderReadiness(False, "ComfyUI URL is not an explicit loopback URL")
+        if not Path(self.comfyui_workflow_descriptor).is_file():
+            return ProviderReadiness(False, "ComfyUI workflow descriptor is missing")
+        return ProviderReadiness(True, "ComfyUI loopback workflow is configured")
 
 
 def _selected_env_file() -> Path:
@@ -179,4 +200,8 @@ def get_settings() -> Settings:
         settings.google_application_credentials, base_dir
     )
     settings.projects_dir = _resolve_path(settings.projects_dir, base_dir)
+    settings.action_packs_dir = _resolve_path(settings.action_packs_dir, base_dir)
+    settings.comfyui_workflow_descriptor = _resolve_path(
+        settings.comfyui_workflow_descriptor, base_dir
+    )
     return settings

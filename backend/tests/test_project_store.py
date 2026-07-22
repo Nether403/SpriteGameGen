@@ -57,7 +57,7 @@ def test_manifest_roundtrip(store):
     store.write_manifest(pid, project)
 
     read = store.read_manifest(pid)
-    assert read == project
+    assert read.model_dump() == project.model_dump()
     assert read.style is Style.PIXEL
     assert read.frames[0].index == 0
     assert read.revision == 1
@@ -75,7 +75,7 @@ def test_read_manifest_backfills_old_metadata_without_rewriting(store, tmp_path)
     first = store.read_manifest(pid)
     second = store.read_manifest(pid)
 
-    assert first.schema_version == 1
+    assert first.schema_version == 2
     assert first.revision == 0
     assert first.created_at.tzinfo == timezone.utc
     assert first.updated_at.tzinfo == timezone.utc

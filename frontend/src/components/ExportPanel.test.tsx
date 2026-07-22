@@ -36,7 +36,7 @@ describe("ExportPanel", () => {
     render(<ExportPanel />);
 
     expect((screen.getByRole("button", { name: "Export sprite sheet" }) as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByText(/Regenerate or delete failed frames/)).toBeDefined();
+    expect(screen.getByText(/Regenerate or disable failed frames/)).toBeDefined();
   });
 
   it("allows export when every animation frame succeeded", async () => {

@@ -22,6 +22,7 @@ from app.services.image_provider import (
     ImageProviderError,
     ImageProviderTimeoutError,
     ImageSafetyBlockedError,
+    ProviderCapability,
 )
 from app.services.prompt_builder import build_generate_prompt
 
@@ -65,6 +66,14 @@ class GeminiClient:
     # Vertex's current image quota is intentionally used sequentially. Providers
     # with more headroom can opt into bounded parallel frame edits.
     max_concurrency = 1
+    capabilities = frozenset(
+        {
+            ProviderCapability.GENERATE,
+            ProviderCapability.EDIT,
+            ProviderCapability.IDENTITY_REFERENCE,
+            ProviderCapability.POSE_REFERENCE,
+        }
+    )
 
     def __init__(
         self,

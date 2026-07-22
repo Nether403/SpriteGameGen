@@ -138,7 +138,8 @@ async def test_animate_persists_direction_and_uses_camera_prompt(client, app_and
     assert response.json()["direction"] == "up_left"
     project = store.read_manifest(pid)
     assert project.view_mode is ViewMode.TOP_DOWN_2_5D
-    assert project.direction is Direction.UP_LEFT
+    assert project.direction is Direction.DOWN
+    assert project.active_clip.direction is Direction.UP_LEFT
     assert all("top-down" in prompt.lower() for prompt in fake.edit_prompts)
     assert all("up-left" in prompt.lower() for prompt in fake.edit_prompts)
 
@@ -177,7 +178,9 @@ async def test_animate_uses_preset_default_frame_count(client, app_and_store):
     assert project.action == "walk"
     assert project.fps == 8
     # frame images persisted
-    assert store.load_image(pid, "frame_0").mode == "RGBA"
+    assert store.load_image(
+        pid, project.frames[0].rendered_filename.removesuffix(".png")
+    ).mode == "RGBA"
 
 
 async def test_animate_accepts_requested_frames_inside_preset_window(client, app_and_store):
@@ -344,7 +347,7 @@ async def test_animate_frames_share_identical_size_antijitter(client, app_and_st
     )
     frames = resp.json()["frames"]
     sizes = {
-        store.load_image(pid, f"frame_{f['index']}").size
+        store.load_image(pid, f["rendered_filename"].removesuffix(".png")).size
         for f in frames
         if f["status"] == "ok"
     }
@@ -368,18 +371,23 @@ async def test_regenerate_frame_replaces_single_frame(client, app_and_store):
     await client.post("/animate", json={"project_id": pid, "action": "walk", "frames": 4})
 
     # capture sibling size to assert the regenerated frame matches it
-    sibling_size = store.load_image(pid, "frame_0").size
+    project = store.read_manifest(pid)
+    sibling_size = store.load_image(
+        pid, project.frames[0].rendered_filename.removesuffix(".png")
+    ).size
 
     resp = await client.post("/animate/frame", json={"project_id": pid, "index": 2})
     assert resp.status_code == 200
     frame = resp.json()
     assert frame["index"] == 2
     assert frame["status"] == "ok"
-    assert frame["url"].split("?", 1)[0].endswith("frame_2.png")
+    assert frame["url"].split("?", 1)[0].endswith(frame["rendered_filename"])
     assert "v=" in frame["url"]
 
     # regenerated frame keeps sibling size (no jitter)
-    assert store.load_image(pid, "frame_2").size == sibling_size
+    assert store.load_image(
+        pid, frame["rendered_filename"].removesuffix(".png")
+    ).size == sibling_size
     # manifest updated in place, still 4 frames
     project = store.read_manifest(pid)
     assert len(project.frames) == 4
@@ -448,7 +456,7 @@ async def test_regenerate_frame_unknown_project_404(client):
     assert resp.status_code == 404
 
 
-async def test_delete_frame_reindexes_and_persists(client, app_and_store):
+async def test_delete_frame_disables_without_reindexing_or_deleting_source(client, app_and_store):
     _, store, _ = app_and_store
     pid = await _generate(client)
     await client.post("/animate", json={"project_id": pid, "action": "walk", "frames": 4})
@@ -456,30 +464,26 @@ async def test_delete_frame_reindexes_and_persists(client, app_and_store):
     resp = await client.request("DELETE", "/animate/frame", json={"project_id": pid, "index": 1})
     assert resp.status_code == 200
     body = resp.json()
-    # One fewer frame, indices contiguous from 0.
-    assert [f["index"] for f in body["frames"]] == [0, 1, 2]
+    assert [f["index"] for f in body["frames"]] == [0, 1, 2, 3]
+    assert body["frames"][1]["enabled"] is False
 
     proj = store.read_manifest(pid)
-    assert [f.index for f in proj.frames] == [0, 1, 2]
-    # The renumbered files exist on disk and the old top index is gone.
-    for i in range(3):
-        store.load_image(pid, f"frame_{i}")  # no FileNotFoundError
-    with pytest.raises(FileNotFoundError):
-        store.load_image(pid, "frame_3")
+    assert [f.index for f in proj.frames] == [0, 1, 2, 3]
+    assert proj.frames[1].enabled is False
+    assert store.asset_path(pid, proj.frames[1].source_filename).is_file()
 
 
-async def test_delete_frame_survives_reload(client, app_and_store):
+async def test_disabled_frame_survives_reload(client, app_and_store):
     _, store, _ = app_and_store
     pid = await _generate(client)
     await client.post("/animate", json={"project_id": pid, "action": "walk", "frames": 4})
     await client.request("DELETE", "/animate/frame", json={"project_id": pid, "index": 0})
-    # Manifest is the source of truth on reload — deletion is durable.
-    assert len(store.read_manifest(pid).frames) == 3
+    project = store.read_manifest(pid)
+    assert len(project.frames) == 4
+    assert project.frames[0].enabled is False
 
 
-async def test_delete_failed_frame_keeps_ok_frames_aligned(client, tmp_path):
-    # Frame 1 fails at animate time; deleting frame 0 must renumber the OK frames
-    # (2,3 -> 1,2) without trying to load the missing failed-frame file.
+async def test_disabling_frame_keeps_stable_indices(client, tmp_path):
     app, store, fake = _make(tmp_path, fail_on={1})
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
@@ -489,11 +493,10 @@ async def test_delete_failed_frame_keeps_ok_frames_aligned(client, tmp_path):
 
     assert resp.status_code == 200
     frames = resp.json()["frames"]
-    assert [f["index"] for f in frames] == [0, 1, 2]
-    # Original failed frame (was index 1) is now index 0 and still failed.
-    assert frames[0]["status"] == "failed"
-    assert frames[0]["url"] is None
-    assert frames[1]["status"] == "ok"
+    assert [f["index"] for f in frames] == [0, 1, 2, 3]
+    assert frames[0]["enabled"] is False
+    assert frames[1]["status"] == "failed"
+    assert frames[1]["url"] is None
 
 
 async def test_export_blocks_animation_with_failed_frames(client, app_and_store):

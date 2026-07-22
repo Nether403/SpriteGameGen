@@ -33,6 +33,9 @@ export function AnimatePanel() {
   const [cameraOptions, setCameraOptions] = useState<AnimationOptions[]>([]);
   const [action, setAction] = useState("walk");
   const [frames, setFrames] = useState<number | "">("");
+  const [createNew, setCreateNew] = useState(false);
+  const [clipName, setClipName] = useState("");
+  const [customMotion, setCustomMotion] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [metadataAttempt, setMetadataAttempt] = useState(0);
@@ -82,6 +85,9 @@ export function AnimatePanel() {
         direction,
         provider,
         signal: controller.signal,
+        clipId: createNew ? crypto.randomUUID().replace(/-/g, "") : undefined,
+        clipName: clipName.trim() || undefined,
+        customMotion: customMotion.trim() || undefined,
       });
       setAnimation(
         projectId,
@@ -90,6 +96,7 @@ export function AnimatePanel() {
         result.frames,
         result.direction,
         result.provider,
+        result.clip_id,
       );
     } catch (e) {
       if (!isAbortError(e)) setError(e instanceof Error ? e.message : "Animation failed.");
@@ -138,6 +145,31 @@ export function AnimatePanel() {
           </option>
         ))}
       </select>
+
+      <label className="inline-control">
+        <input
+          type="checkbox"
+          checked={createNew}
+          onChange={(event) => setCreateNew(event.target.checked)}
+        />
+        Preserve the current clip and create a new variant
+      </label>
+      <label htmlFor="clip-name">Clip name (optional)</label>
+      <input
+        id="clip-name"
+        type="text"
+        maxLength={100}
+        value={clipName}
+        placeholder="Walk - armored"
+        onChange={(event) => setClipName(event.target.value)}
+      />
+      <label htmlFor="custom-motion">Custom motion (optional)</label>
+      <textarea
+        id="custom-motion"
+        value={customMotion}
+        placeholder="Describe a motion not covered by the selected action"
+        onChange={(event) => setCustomMotion(event.target.value)}
+      />
 
       {selected && (
         <>

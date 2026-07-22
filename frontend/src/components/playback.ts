@@ -12,3 +12,22 @@ export function frameAt(elapsedMs: number, fps: number, frameCount: number): num
   // Modulo that stays correct for any non-negative raw value.
   return raw % frameCount;
 }
+
+export function frameAtDurations(
+  elapsedMs: number,
+  durationsMs: number[],
+  loop: boolean,
+): number {
+  if (durationsMs.length === 0) return 0;
+  const safe = durationsMs.map((duration) => Math.max(1, duration));
+  const total = safe.reduce((sum, duration) => sum + duration, 0);
+  const position = loop
+    ? ((Math.max(0, elapsedMs) % total) + total) % total
+    : Math.min(Math.max(0, elapsedMs), total - 1);
+  let cursor = 0;
+  for (let index = 0; index < safe.length; index += 1) {
+    cursor += safe[index];
+    if (position < cursor) return index;
+  }
+  return safe.length - 1;
+}

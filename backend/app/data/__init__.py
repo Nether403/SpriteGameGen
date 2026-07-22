@@ -1,0 +1,1 @@
+"""Bundled, validated data assets."""

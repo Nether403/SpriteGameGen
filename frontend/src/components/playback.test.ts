@@ -2,7 +2,7 @@
 // must advance correctly for a given fps/elapsed time and loop.
 import { describe, expect, it } from "vitest";
 
-import { frameAt } from "./playback";
+import { frameAt, frameAtDurations } from "./playback";
 
 describe("frameAt", () => {
   it("shows frame 0 at the start of the cycle", () => {
@@ -35,5 +35,17 @@ describe("frameAt", () => {
     expect(frameAt(1000, 8, 0)).toBe(0);
     expect(frameAt(1000, 0, 6)).toBe(0);
     expect(frameAt(-50, 8, 6)).toBe(0);
+  });
+});
+
+describe("frameAtDurations", () => {
+  it("uses per-frame durations and loops deterministically", () => {
+    expect(frameAtDurations(99, [100, 300], true)).toBe(0);
+    expect(frameAtDurations(100, [100, 300], true)).toBe(1);
+    expect(frameAtDurations(400, [100, 300], true)).toBe(0);
+  });
+
+  it("clamps once-mode playback to the final frame", () => {
+    expect(frameAtDurations(10_000, [100, 100], false)).toBe(1);
   });
 });

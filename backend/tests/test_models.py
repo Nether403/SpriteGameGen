@@ -118,7 +118,7 @@ def test_project_construction():
 def test_project_metadata_defaults_are_utc_and_versioned():
     project = Project(id="x", prompt="p", style=Style.PIXEL)
 
-    assert project.schema_version == 1
+    assert project.schema_version == 2
     assert project.revision == 0
     assert project.created_at.tzinfo == timezone.utc
     assert project.updated_at.tzinfo == timezone.utc

@@ -9,10 +9,11 @@ import { useProjectStore } from "../state/project";
 import type { Frame } from "../api/client";
 
 const regenerateFrame = vi.fn();
-const deleteFrame = vi.fn();
+const adjustFrame = vi.fn();
 vi.mock("../api/client", () => ({
   regenerateFrame: (pid: string, index: number) => regenerateFrame(pid, index),
-  deleteFrame: (pid: string, index: number) => deleteFrame(pid, index),
+  adjustFrame: (pid: string, clipId: string, index: number, adjustment: object) =>
+    adjustFrame(pid, clipId, index, adjustment),
 }));
 
 function seed(frames: Frame[]) {
@@ -21,6 +22,14 @@ function seed(frames: Frame[]) {
     action: "walk",
     fps: 8,
     frames,
+    activeClipId: "walk-a",
+    clips: {
+      "walk-a": {
+        id: "walk-a", name: "Walk", action: "walk", direction: "left", fps: 8,
+        loop_mode: "loop", loop_start: 0, loop_end: 2, enabled: true,
+        horizontal_flip: false, frames,
+      },
+    },
     spriteUrl: null,
     style: "pixel",
     exportResult: null,
@@ -36,7 +45,7 @@ const okFrames: Frame[] = [
 afterEach(() => {
   cleanup();
   regenerateFrame.mockReset();
-  deleteFrame.mockReset();
+  adjustFrame.mockReset();
   useProjectStore.setState({ frames: [], action: null, projectId: null });
 });
 
@@ -87,27 +96,18 @@ describe("FrameStrip", () => {
     });
   });
 
-  it("deletes the clicked frame via the backend and stores the result", async () => {
+  it("disables the clicked frame without deleting or reindexing it", async () => {
     seed(okFrames);
-    // Backend returns the re-indexed survivors (the deleted frame is gone).
-    deleteFrame.mockResolvedValue({
-      project_id: "p1",
-      action: "walk",
-      fps: 8,
-      frames: [
-        { index: 0, url: "/projects/p1/frame_0.png", status: "ok" },
-        { index: 1, url: null, status: "failed" },
-      ],
-    });
+    adjustFrame.mockResolvedValue({ ...okFrames[0], enabled: false });
     render(<FrameStrip />);
 
-    fireEvent.click(screen.getByLabelText("Delete frame 1"));
-    expect(deleteFrame).toHaveBeenCalledWith("p1", 0);
+    fireEvent.click(screen.getByLabelText("Disable frame 1"));
+    expect(adjustFrame).toHaveBeenCalledWith("p1", "walk-a", 0, { enabled: false });
 
     await waitFor(() => {
       const frames = useProjectStore.getState().frames;
-      expect(frames).toHaveLength(2);
-      expect(frames.map((f) => f.index)).toEqual([0, 1]);
+      expect(frames).toHaveLength(3);
+      expect(frames[0].enabled).toBe(false);
     });
   });
 

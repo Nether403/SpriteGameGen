@@ -130,5 +130,5 @@ async def test_old_manifest_is_resumeable_with_derived_metadata(client, app_and_
     response = await client.get(f"/projects/{pid}")
     assert response.status_code == 200
     assert response.json()["prompt"] == "legacy sprite"
-    assert response.json()["schema_version"] == 1
+    assert response.json()["schema_version"] == 2
     assert response.json()["resume_available"] is True

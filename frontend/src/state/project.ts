@@ -4,6 +4,7 @@ import { create } from "zustand";
 
 import type {
   Direction,
+  AnimationClip,
   ExportResult,
   Frame,
   ImageProviderName,
@@ -11,6 +12,7 @@ import type {
   PromptSource,
   Style,
   ViewMode,
+  RenderSettings,
 } from "../api/client";
 
 export interface ActiveProjectMetadata {
@@ -35,6 +37,7 @@ export type ProjectMutationKind =
   | "delete"
   | "animate"
   | "frame"
+  | "workspace"
   | "export";
 
 export interface ProjectMutation {
@@ -56,6 +59,9 @@ interface ProjectState {
   provider: ImageProviderName;
   activeProject: ActiveProjectMetadata | null;
   frames: Frame[];
+  clips: Record<string, AnimationClip>;
+  activeClipId: string | null;
+  renderSettings: RenderSettings;
   action: string | null;
   fps: number;
   exportResult: ExportResult | null;
@@ -87,8 +93,9 @@ interface ProjectState {
     frames: Frame[],
     direction?: Direction,
     provider?: ImageProviderName,
+    clipId?: string,
   ) => void;
-  setFrame: (expectedProjectId: string, frame: Frame) => void;
+  setFrame: (expectedProjectId: string, frame: Frame, expectedClipId?: string | null) => void;
   setExport: (
     expectedProjectId: string,
     result: ExportResult,
@@ -104,6 +111,17 @@ const initialAnimation = {
   frames: [] as Frame[],
   action: null as string | null,
   fps: 8,
+  clips: {} as Record<string, AnimationClip>,
+  activeClipId: null as string | null,
+  renderSettings: {
+    target_width: null,
+    target_height: null,
+    output_scale: 1,
+    color_limit: 32,
+    palette_mode: "auto" as const,
+    preset_palette: null,
+    custom_palette: [],
+  },
 };
 
 let nextMutationToken = 1;
@@ -189,7 +207,10 @@ export const useProjectStore = create<ProjectState>((set) => ({
         direction: project.direction,
         provider: project.image_provider ?? "gemini",
       };
-      return {
+       const clips = project.clips ?? {};
+       const activeClipId = project.active_clip_id ?? null;
+       const activeClip = activeClipId ? clips[activeClipId] : undefined;
+       return {
         projectId: project.id,
         prompt: project.prompt,
         enhancedPrompt: project.enhanced_prompt,
@@ -200,20 +221,44 @@ export const useProjectStore = create<ProjectState>((set) => ({
         direction: project.direction,
         provider: project.image_provider ?? "gemini",
         activeProject,
-        frames: project.frames,
-        action: project.action,
-        fps: project.fps ?? 8,
+        clips,
+        activeClipId,
+        renderSettings: project.render_settings ?? initialAnimation.renderSettings,
+        frames: activeClip?.frames ?? project.frames,
+        action: activeClip?.action ?? project.action,
+        fps: activeClip?.fps ?? project.fps ?? 8,
         exportResult: null,
         exportOptions: null,
       };
     }),
-  setAnimation: (expectedProjectId, action, fps, frames, direction, provider) =>
+  setAnimation: (expectedProjectId, action, fps, frames, direction, provider, clipId) =>
     set((state) => {
       if (state.projectId !== expectedProjectId) return state;
+      const selectedClipId = clipId ?? state.activeClipId;
+      const existingClip = selectedClipId ? state.clips[selectedClipId] : undefined;
       return {
         action,
         fps,
         frames,
+        activeClipId: selectedClipId,
+        clips: selectedClipId
+          ? {
+              ...state.clips,
+              [selectedClipId]: {
+                id: selectedClipId,
+                name: existingClip?.name ?? action,
+                action,
+                direction: direction ?? existingClip?.direction ?? "left",
+                fps,
+                loop_mode: existingClip?.loop_mode ?? "loop",
+                loop_start: existingClip?.loop_start ?? 0,
+                loop_end: existingClip?.loop_end ?? (frames.length ? frames.length - 1 : null),
+                enabled: existingClip?.enabled ?? true,
+                horizontal_flip: existingClip?.horizontal_flip ?? false,
+                frames,
+              },
+            }
+          : state.clips,
         activeProject: state.activeProject
           ? {
               ...state.activeProject,
@@ -226,11 +271,19 @@ export const useProjectStore = create<ProjectState>((set) => ({
         catalogRevision: state.catalogRevision + 1,
       };
     }),
-  setFrame: (expectedProjectId, frame) =>
+  setFrame: (expectedProjectId, frame, expectedClipId) =>
     set((state) => {
       if (state.projectId !== expectedProjectId) return state;
+      if (expectedClipId !== undefined && state.activeClipId !== expectedClipId) return state;
+      const frames = state.frames.map((f) => (f.index === frame.index ? frame : f));
       return {
-        frames: state.frames.map((f) => (f.index === frame.index ? frame : f)),
+        frames,
+        clips: state.activeClipId && state.clips[state.activeClipId]
+          ? {
+              ...state.clips,
+              [state.activeClipId]: { ...state.clips[state.activeClipId], frames },
+            }
+          : state.clips,
         exportResult: null,
         exportOptions: null,
         catalogRevision: state.catalogRevision + 1,

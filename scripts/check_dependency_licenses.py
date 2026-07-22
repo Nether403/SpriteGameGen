@@ -28,9 +28,21 @@ REVIEWED_EXCEPTIONS: dict[tuple[str, str, str, str], str] = {
     (
         "python",
         "certifi",
-        "2026.4.22",
+        "2026.6.17",
         "MPL-2.0",
     ): "Required TLS trust-data dependency; approved for this exact reviewed release.",
+    (
+        "python",
+        "llvmlite",
+        "0.48.0",
+        "",
+    ): "Numba runtime dependency; upstream distributes under BSD-2-Clause with bundled LLVM notices, reviewed for this exact release.",
+    (
+        "python",
+        "tqdm",
+        "4.69.0",
+        "MPL-2.0 AND MIT",
+    ): "Required rembg progress dependency; MPL-2.0/MIT terms reviewed for this exact release.",
 }
 
 _ALLOWED_LICENSE_IDS = {
@@ -144,10 +156,6 @@ def _declared_python_license(distribution: PythonDistribution) -> str:
     if expression:
         return expression
 
-    license_text = distribution.license_text.strip()
-    if license_text and classify_license(license_text) != "unknown":
-        return license_text
-
     prefix = "License :: OSI Approved :: "
     for classifier in sorted(distribution.classifiers):
         if classifier.startswith(prefix):
@@ -155,6 +163,9 @@ def _declared_python_license(distribution: PythonDistribution) -> str:
             mapped = _CLASSIFIER_LICENSES.get(classifier_name)
             if mapped:
                 return mapped
+    license_text = distribution.license_text.strip()
+    if license_text and classify_license(license_text) != "unknown":
+        return license_text
     return license_text
 
 

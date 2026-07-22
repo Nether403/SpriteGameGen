@@ -21,6 +21,13 @@ EXPECTED_TOOLS = {
     "animate",
     "regenerate_frame",
     "export_sheet",
+    "set_render_settings",
+    "set_frame_adjustment",
+    "update_clip",
+    "delete_clip",
+    "export_character_bundle",
+    "validate_recipe",
+    "get_project_recipe",
 }
 
 

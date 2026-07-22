@@ -30,7 +30,8 @@ def _grid_cols(n: int, cols: int | None) -> int:
 
 
 def pack(
-    frames: list[Image.Image], cols: int | None = None, padding: int = 0
+    frames: list[Image.Image], cols: int | None = None, padding: int = 0,
+    *, indices: list[int] | None = None,
 ) -> tuple[Image.Image, Layout]:
     """Pack frames into a single sheet.
 
@@ -45,6 +46,8 @@ def pack(
     """
     if not frames:
         raise ValueError("pack requires at least one frame")
+    if indices is not None and len(indices) != len(frames):
+        raise ValueError("indices must match frames")
     if cols is not None and cols < 1:
         raise ValueError("cols must be >= 1 or None")
     if cols is not None and cols > MAX_EXPORT_COLS:
@@ -88,7 +91,13 @@ def pack(
         rgba = frame if frame.mode == "RGBA" else frame.convert("RGBA")
         sheet.paste(rgba, (x, y))
         layout.append(
-            {"index": i, "x": x, "y": y, "w": rgba.width, "h": rgba.height}
+            {
+                "index": indices[i] if indices is not None else i,
+                "x": x,
+                "y": y,
+                "w": rgba.width,
+                "h": rgba.height,
+            }
         )
 
     return sheet, layout

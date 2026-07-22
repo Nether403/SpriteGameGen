@@ -35,8 +35,10 @@ from app.services.sprite_service import (
 )
 from app.services.provider_selection import (
     ProviderRegistry,
+    ProviderRequirements,
     ProviderUnavailableError,
 )
+from app.services.image_provider import ProviderCapability
 from app.storage.project_store import ProjectStore
 
 router = APIRouter()
@@ -114,6 +116,7 @@ async def generate(
     view_mode: str = Form(default=ViewMode.SIDE_SCROLLER.value),
     direction: str = Form(default=Direction.LEFT.value),
     provider: str = Form(default=ImageProviderName.GEMINI.value),
+    seed: int | None = Form(default=None, ge=0, le=2**63 - 1),
     reference: UploadFile | None = File(default=None),
     providers: ProviderRegistry = Depends(get_provider_registry),
     store: ProjectStore = Depends(get_store),
@@ -127,7 +130,14 @@ async def generate(
     except ValueError:
         raise HTTPException(status_code=422, detail=f"unknown provider: {provider!r}")
     try:
-        resolved = providers.resolve(provider_enum)
+        required = {ProviderCapability.GENERATE}
+        if reference is not None:
+            required.add(ProviderCapability.IDENTITY_REFERENCE)
+        if seed is not None:
+            required.add(ProviderCapability.SEED)
+        resolved = providers.resolve(
+            provider_enum, ProviderRequirements(frozenset(required))
+        )
     except ProviderUnavailableError as exc:
         raise HTTPException(status_code=503, detail=str(exc))
     accepted_prompt = enhanced_prompt.strip() if enhanced_prompt else None
@@ -163,6 +173,7 @@ async def generate(
                     view_mode=mode_enum,
                     direction=direction_enum,
                     reference=ref_img,
+                    seed=seed,
                 ),
             ),
             abandon_on_cancel=True,

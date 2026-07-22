@@ -3,7 +3,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from app.pipeline.pixelate import PixelateError, quantize
+from app.pipeline.pixelate import PixelateError, build_shared_palette, quantize
 
 
 def _gradient(size=(32, 32)):
@@ -91,3 +91,32 @@ def test_quantize_wraps_processing_failure(monkeypatch):
     monkeypatch.setattr(Image.Image, "resize", fail)
     with pytest.raises(PixelateError):
         quantize(img, colors=8, downscale=2)
+
+
+def test_quantize_supports_logical_target_and_integer_output_scale():
+    out = quantize(
+        _gradient((24, 12)),
+        colors=8,
+        target_size=(8, 6),
+        output_scale=3,
+    )
+
+    assert out.size == (24, 18)
+
+
+def test_custom_palette_is_applied_without_changing_alpha():
+    image = _gradient((8, 8))
+    out = quantize(image, palette=["#000000", "#ffffff"])
+
+    assert _distinct_opaque_colors(out) <= 2
+    assert out.getpixel((1, 1))[3] == 0
+
+
+def test_shared_auto_palette_is_deterministic_across_frame_order():
+    red = Image.new("RGBA", (2, 2), "red")
+    blue = Image.new("RGBA", (2, 2), "blue")
+
+    first = build_shared_palette([red, blue], colors=2)
+    second = build_shared_palette([blue, red], colors=2)
+
+    assert first == second

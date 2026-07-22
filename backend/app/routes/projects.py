@@ -31,7 +31,7 @@ def list_projects(store: ProjectStore = Depends(get_store)):
     ]
 
 
-@router.get("/projects/{project_id}", response_model=ProjectDetail)
+@router.get("/projects/{project_id}")
 def get_project(project_id: str, store: ProjectStore = Depends(get_store)):
     try:
         result = SpriteService(store=store).get_project(project_id)
@@ -42,28 +42,27 @@ def get_project(project_id: str, store: ProjectStore = Depends(get_store)):
             status_code=409,
             detail=str(exc),
         )
-    project = result.project.model_copy(
-        update={
-            "frames": [
-                frame.model_copy(
-                    update={
-                        "url": (
-                            asset_url(project_id, filename) if filename else None
-                        )
-                    }
-                )
-                for frame, filename in zip(
-                    result.project.frames, result.frame_filenames
-                )
-            ]
+    payload = result.project.model_dump()
+    for clip in payload["clips"].values():
+        for frame in clip["frames"]:
+            filename = frame.get("rendered_filename")
+            frame["url"] = asset_url(project_id, filename) if filename else None
+    frames = []
+    for frame, filename in zip(result.project.frames, result.frame_filenames):
+        frame_payload = frame.model_dump()
+        frame_payload["url"] = asset_url(project_id, filename) if filename else None
+        frames.append(frame_payload)
+    payload.update(
+        {
+            "frames": frames,
+            "action": result.project.action,
+            "fps": result.project.fps,
+            "sprite_url": asset_url(project_id, result.sprite_filename),
+            "health": result.health,
+            "resume_available": True,
         }
     )
-    return ProjectDetail(
-        **project.model_dump(),
-        sprite_url=asset_url(project_id, result.sprite_filename),
-        health=result.health,
-        resume_available=True,
-    )
+    return payload
 
 
 @router.delete("/projects/{project_id}")

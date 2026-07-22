@@ -59,3 +59,7 @@ GCloud-update-notice.txt
 /graphify-out/QUERY_REPORT.md
 /graphify-out/memory/query_*.md
 /graphify-out/query-runs/
+
+# Browser automation captures are local diagnostics, never source artifacts.
+/.playwright-mcp/
+/.opencode/goals/

@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     name: Test (${{ matrix.os }})
@@ -20,21 +24,21 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Set up Python 3.11
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.11"
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v8
+        uses: astral-sh/setup-uv@94527f2e458b27549849d47d273a16bec83a01e9 # v7
         with:
           enable-cache: true
           cache-dependency-glob: backend/uv.lock
 
       - name: Set up active LTS Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: lts/*
           cache: npm
@@ -56,6 +60,18 @@ jobs:
         run: uv pip check
         working-directory: backend
 
+      - name: Check runtime dependency licenses
+        run: uv run python ../scripts/check_dependency_licenses.py
+        working-directory: backend
+
+      - name: Run credential-safe readiness doctor
+        run: uv run python ../scripts/doctor.py
+        working-directory: backend
+
+      - name: Smoke test MCP stdio contract
+        run: uv run python ../scripts/smoke_mcp.py
+        working-directory: backend
+
       - name: Install frontend dependencies
         run: npm ci
         working-directory: frontend
@@ -71,3 +87,43 @@ jobs:
       - name: Audit production frontend dependencies
         run: npm audit --omit=dev --audit-level=high
         working-directory: frontend
+
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - name: Scan tracked history with redacted output
+        uses: gitleaks/gitleaks-action@dcedce43c6f43de0b836d1fe38946645c9c638dc # v2
+        env:
+          GITLEAKS_ENABLE_SUMMARY: "false"
+
+  godot:
+    name: Godot 4.7 bundle smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Set up Python 3.11
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.11"
+      - name: Set up uv
+        uses: astral-sh/setup-uv@94527f2e458b27549849d47d273a16bec83a01e9 # v7
+      - name: Install locked backend dependencies
+        run: uv sync --locked --extra dev
+        working-directory: backend
+      - name: Install pinned Godot
+        uses: chickensoft-games/setup-godot@f166999204a4f2722c6fe042fbaa3b3ea0d9c789 # v2
+        with:
+          version: 4.7.0
+          use-dotnet: false
+          include-templates: false
+      - name: Import and load generated resources headlessly
+        run: uv run python ../scripts/run_godot_smoke.py --godot godot
+        working-directory: backend

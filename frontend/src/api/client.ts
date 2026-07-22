@@ -15,7 +15,8 @@ export type Direction =
 export type ExportFormat = "json" | "xml";
 export type FrameStatus = "ok" | "failed";
 export type PromptSource = "raw" | "enhanced";
-export type ImageProviderName = "auto" | "azure" | "gemini" | "hyperagent";
+export type ImageProviderName = "auto" | "azure" | "gemini" | "comfyui" | "hyperagent";
+export type LoopMode = "loop" | "once";
 
 export interface GenerateResult {
   project_id: string;
@@ -27,16 +28,49 @@ export interface GenerateResult {
 export interface ExportResult {
   sheet_url: string;
   atlas_url: string;
+  frames_url?: string;
+  bundle_url?: string;
 }
 
 export interface RequestOptions {
   signal?: AbortSignal;
+  clipId?: string | null;
 }
 
 export interface Frame {
   index: number;
   url: string | null;
   status: FrameStatus;
+  enabled?: boolean;
+  nudge_x?: number;
+  nudge_y?: number;
+  duration_ms?: number | null;
+  source_filename?: string | null;
+  rendered_filename?: string | null;
+}
+
+export interface AnimationClip {
+  id: string;
+  name: string;
+  action: string;
+  direction: Direction;
+  fps: number;
+  loop_mode: LoopMode;
+  loop_start: number;
+  loop_end: number | null;
+  enabled: boolean;
+  horizontal_flip: boolean;
+  frames: Frame[];
+}
+
+export interface RenderSettings {
+  target_width: number | null;
+  target_height: number | null;
+  output_scale: number;
+  color_limit: number;
+  palette_mode: "auto" | "shared_auto" | "preset" | "custom";
+  preset_palette: string | null;
+  custom_palette: string[];
 }
 
 export interface Project {
@@ -52,6 +86,9 @@ export interface Project {
   frames: Frame[];
   action: string | null;
   fps: number | null;
+  clips?: Record<string, AnimationClip>;
+  active_clip_id?: string | null;
+  render_settings?: RenderSettings;
   created_at: string;
   updated_at: string;
 }
@@ -169,7 +206,7 @@ export async function enhancePrompt(
 export async function exportProject(
   projectId: string,
   format: ExportFormat,
-  opts: { padding?: number; cols?: number | null; signal?: AbortSignal } = {},
+  opts: { padding?: number; cols?: number | null; clipId?: string | null; signal?: AbortSignal } = {},
 ): Promise<ExportResult> {
   const res = await fetch("/export", {
     method: "POST",
@@ -179,6 +216,7 @@ export async function exportProject(
       format,
       padding: opts.padding ?? 0,
       cols: opts.cols ?? null,
+      ...(opts.clipId ? { clip_id: opts.clipId } : {}),
     }),
     signal: opts.signal,
   });
@@ -193,6 +231,7 @@ export interface AnimateResult {
   direction: Direction;
   frames: Frame[];
   provider: ImageProviderName;
+  clip_id: string;
 }
 
 // POST /animate — expand the base sprite into an animation. `frames` omitted
@@ -205,6 +244,12 @@ export async function animate(
     fps?: number;
     direction?: Direction;
     provider?: ImageProviderName;
+    clipId?: string | null;
+    clipName?: string | null;
+    loopMode?: LoopMode;
+    customMotion?: string | null;
+    firstPose?: string | null;
+    lastPose?: string | null;
     signal?: AbortSignal;
   } = {},
 ): Promise<AnimateResult> {
@@ -218,6 +263,12 @@ export async function animate(
       fps: opts.fps ?? 8,
       direction: opts.direction ?? "left",
       ...(opts.provider ? { provider: opts.provider } : {}),
+      ...(opts.clipId ? { clip_id: opts.clipId } : {}),
+      ...(opts.clipName ? { clip_name: opts.clipName } : {}),
+      ...(opts.loopMode ? { loop_mode: opts.loopMode } : {}),
+      ...(opts.customMotion ? { custom_motion: opts.customMotion } : {}),
+      ...(opts.firstPose ? { first_pose: opts.firstPose } : {}),
+      ...(opts.lastPose ? { last_pose: opts.lastPose } : {}),
     }),
     signal: opts.signal,
   });
@@ -238,6 +289,7 @@ export async function regenerateFrame(
       project_id: projectId,
       index,
       ...(provider ? { provider } : {}),
+      ...(options.clipId ? { clip_id: options.clipId } : {}),
     }),
     signal: options.signal,
   });
@@ -280,6 +332,7 @@ export interface ImageProviderOption {
   experimental: boolean;
   description: string;
   unavailable_reason: string | null;
+  capabilities?: string[];
 }
 
 export async function listPresets(options: RequestOptions = {}): Promise<Preset[]> {
@@ -317,4 +370,67 @@ export async function deleteProject(
       signal: options.signal,
     }),
   );
+}
+
+export async function selectClip(projectId: string, clipId: string): Promise<Project> {
+  return unwrap<Project>(await fetch(
+    `/projects/${encodeURIComponent(projectId)}/clips/${encodeURIComponent(clipId)}/select`,
+    { method: "POST" },
+  ));
+}
+
+export async function updateClip(
+  projectId: string,
+  clipId: string,
+  update: Partial<Pick<AnimationClip, "name" | "fps" | "loop_mode" | "loop_start" | "loop_end" | "enabled">>,
+): Promise<Project> {
+  return unwrap<Project>(await fetch(
+    `/projects/${encodeURIComponent(projectId)}/clips/${encodeURIComponent(clipId)}`,
+    { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(update) },
+  ));
+}
+
+export async function deleteClip(projectId: string, clipId: string): Promise<Project> {
+  return unwrap<Project>(await fetch(
+    `/projects/${encodeURIComponent(projectId)}/clips/${encodeURIComponent(clipId)}`,
+    { method: "DELETE" },
+  ));
+}
+
+export async function setRenderSettings(
+  projectId: string,
+  settings: RenderSettings,
+): Promise<Project> {
+  return unwrap<Project>(await fetch(
+    `/projects/${encodeURIComponent(projectId)}/render-settings`,
+    { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(settings) },
+  ));
+}
+
+export async function adjustFrame(
+  projectId: string,
+  clipId: string,
+  index: number,
+  adjustment: { enabled?: boolean; nudge_x?: number; nudge_y?: number; horizontal_flip?: boolean; reset?: boolean },
+): Promise<Frame> {
+  return unwrap<Frame>(await fetch(
+    `/projects/${encodeURIComponent(projectId)}/clips/${encodeURIComponent(clipId)}/frames/${index}`,
+    { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(adjustment) },
+  ));
+}
+
+export async function exportCharacterBundle(
+  projectId: string,
+  options: { scope?: "active" | "all_enabled"; clipId?: string | null; engineProfile?: "godot4_animatedsprite2d" | null } = {},
+): Promise<{ bundle_url: string }> {
+  return unwrap<{ bundle_url: string }>(await fetch("/exports/character-bundle", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      project_id: projectId,
+      scope: options.scope ?? "active",
+      clip_id: options.clipId ?? null,
+      engine_profile: options.engineProfile ?? null,
+    }),
+  }));
 }

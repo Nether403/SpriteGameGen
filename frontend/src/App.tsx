@@ -3,15 +3,17 @@ import { AnimatePanel } from "./components/AnimatePanel";
 import { ExportPanel } from "./components/ExportPanel";
 import { GeneratePanel } from "./components/GeneratePanel";
 import { ProjectBrowser } from "./components/ProjectBrowser";
+import { WorkspacePanel } from "./components/WorkspacePanel";
 
 export default function App() {
   return (
     <main className="app">
       <header>
-        <h1>AI Sprite &amp; Game Asset Tool</h1>
-        <p>Describe a sprite, animate it, get a clean engine-ready sheet.</p>
+        <h1>SpriteGameGen Character Workbench</h1>
+        <p>Build, repair, and package a complete local-first character animation set.</p>
       </header>
       <ProjectBrowser />
+      <WorkspacePanel />
       <div className="steps">
         <GeneratePanel />
         <AnimatePanel />

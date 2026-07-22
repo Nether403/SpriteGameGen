@@ -31,8 +31,10 @@ from app.services.sprite_service import (
 )
 from app.services.provider_selection import (
     ProviderRegistry,
+    ProviderRequirements,
     ProviderUnavailableError,
 )
+from app.services.image_provider import ProviderCapability
 from app.storage.project_store import ProjectStore
 
 router = APIRouter()
@@ -62,16 +64,11 @@ def image_providers(
 
 
 def _animation_payload(result: AnimationResult) -> dict:
-    frames = [
-        frame.model_copy(
-            update={
-                "url": (
-                    asset_url(result.project_id, filename) if filename else None
-                )
-            }
-        ).model_dump()
-        for frame, filename in zip(result.frames, result.frame_filenames)
-    ]
+    frames = []
+    for frame, filename in zip(result.frames, result.frame_filenames):
+        payload = frame.model_dump()
+        payload["url"] = asset_url(result.project_id, filename) if filename else None
+        frames.append(payload)
     return {
         "project_id": result.project_id,
         "action": result.action,
@@ -80,6 +77,7 @@ def _animation_payload(result: AnimationResult) -> dict:
         "direction": result.direction,
         "provider": result.project.image_provider,
         "frames": frames,
+        "clip_id": result.clip_id,
     }
 
 
@@ -92,8 +90,21 @@ def animate(
 ):
     try:
         project = store.read_manifest(req.project_id)
-        requested = req.provider or project.image_provider
-        resolved = providers.resolve(requested)
+        target_clip = project.clips.get(req.clip_id or project.active_clip_id or "")
+        requested = req.provider or (
+            target_clip.image_provider if target_clip else project.image_provider
+        )
+        required = {
+            ProviderCapability.EDIT,
+            ProviderCapability.IDENTITY_REFERENCE,
+        }
+        if req.action == "walk" and project.view_mode is ViewMode.SIDE_SCROLLER:
+            required.add(ProviderCapability.POSE_REFERENCE)
+        if req.seed is not None:
+            required.add(ProviderCapability.SEED)
+        resolved = providers.resolve(
+            requested, ProviderRequirements(frozenset(required))
+        )
         result = SpriteService(
             store=store,
             image_provider=resolved.provider,
@@ -124,6 +135,7 @@ class RegenerateFrameRequest(BaseModel):
     project_id: str
     index: int = Field(ge=0)
     provider: ImageProviderName | None = None
+    clip_id: str | None = None
 
 
 @router.post("/animate/frame")
@@ -135,15 +147,27 @@ def regenerate_frame(
 ):
     try:
         project = store.read_manifest(req.project_id)
-        requested = req.provider or project.image_provider
-        resolved = providers.resolve(requested)
+        target_clip = project.clips.get(req.clip_id or project.active_clip_id or "")
+        requested = req.provider or (
+            target_clip.image_provider if target_clip else project.image_provider
+        )
+        clip = target_clip
+        required = {
+            ProviderCapability.EDIT,
+            ProviderCapability.IDENTITY_REFERENCE,
+        }
+        if clip and clip.action == "walk" and project.view_mode is ViewMode.SIDE_SCROLLER:
+            required.add(ProviderCapability.POSE_REFERENCE)
+        resolved = providers.resolve(
+            requested, ProviderRequirements(frozenset(required))
+        )
         result = SpriteService(
             store=store,
             image_provider=resolved.provider,
             prompt_enhancer=providers.prompt_enhancer,
             provider_name=resolved.name,
             remover=getattr(request.app.state, "remover", None),
-        ).regenerate_frame(req.project_id, req.index)
+        ).regenerate_frame(req.project_id, req.index, clip_id=req.clip_id)
     except ProjectNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     except ValidationServiceError as exc:
@@ -154,25 +178,19 @@ def regenerate_frame(
         raise HTTPException(status_code=503, detail=str(exc))
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="project not found")
-    return result.frame.model_copy(
-        update={
-            "url": asset_url(result.project_id, result.filename)
-            if result.filename
-            else None
-        }
-    ).model_dump()
+    payload = result.frame.model_dump()
+    payload["url"] = (
+        asset_url(result.project_id, result.filename) if result.filename else None
+    )
+    return payload
 
 
 class DeleteFrameRequest(BaseModel):
-    """Delete a single frame and re-index the remainder (FrameStrip escape hatch).
-
-    Frames persist as ``frame_{index}.png`` and the export route assumes manifest
-    indices match those filenames, so deleting frame *i* renumbers every later
-    frame down by one on disk as well as in the manifest.
-    """
+    """Compatibility request that disables a frame without deleting its source."""
 
     project_id: str
     index: int = Field(ge=0)
+    clip_id: str | None = None
 
 
 @router.delete("/animate/frame")
@@ -181,7 +199,9 @@ def delete_frame(
     store: ProjectStore = Depends(get_store),
 ):
     try:
-        result = SpriteService(store=store).delete_frame(req.project_id, req.index)
+        result = SpriteService(store=store).delete_frame(
+            req.project_id, req.index, clip_id=req.clip_id
+        )
     except ProjectNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     except ValidationServiceError as exc:

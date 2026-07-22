@@ -21,6 +21,7 @@ from app.services.image_provider import (
     ImageProviderError,
     ImageProviderTimeoutError,
     ImageSafetyBlockedError,
+    ProviderCapability,
 )
 from app.services.prompt_builder import build_generate_prompt
 
@@ -45,6 +46,15 @@ class AzureImageTimeoutError(AzureImageError, ImageProviderTimeoutError):
 
 class AzureImageProvider:
     """Generate and edit images through an Azure GPT Image deployment."""
+
+    capabilities = frozenset(
+        {
+            ProviderCapability.GENERATE,
+            ProviderCapability.EDIT,
+            ProviderCapability.IDENTITY_REFERENCE,
+            ProviderCapability.POSE_REFERENCE,
+        }
+    )
 
     def __init__(
         self,

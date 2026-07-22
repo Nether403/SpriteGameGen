@@ -14,7 +14,7 @@ from PIL import Image
 
 from app.config import ProviderReadiness, get_settings
 from app.deps import get_provider_availability, get_store
-from app.routes import animate, assets, export, generate, projects, prompts
+from app.routes import animate, assets, clips, export, generate, projects, prompts
 from app.storage.project_store import ProjectStore
 
 # Dev frontend origin (Vite).
@@ -48,6 +48,7 @@ def create_app(
     app.include_router(projects.router)
     app.include_router(prompts.router)
     app.include_router(assets.router)
+    app.include_router(clips.router)
 
     @app.get("/health")
     def health():

@@ -1,4 +1,10 @@
 {
+  "name": "sprite-game-gen-workspace",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Repository tooling for the SpriteGameGen local-first animation workbench",
+  "license": "Apache-2.0",
+  "repository": "https://github.com/Nether403/SpriteGameGen.git",
   "dependencies": {
     "opencode-goal-plugin": "^0.6.5"
   }

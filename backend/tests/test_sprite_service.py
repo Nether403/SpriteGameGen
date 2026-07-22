@@ -216,10 +216,7 @@ def test_animation_and_export_return_asset_names_not_urls(tmp_path):
     )
     assert len(animation.frames) == 4
     assert animation.frame_filenames == [
-        "frame_0.png",
-        "frame_1.png",
-        "frame_2.png",
-        "frame_3.png",
+        frame.rendered_filename for frame in animation.frames
     ]
     assert len(gemini.pose_references) == 4
     assert all(reference is not None for reference in gemini.pose_references)

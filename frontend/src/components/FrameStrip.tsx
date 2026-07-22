@@ -5,7 +5,7 @@
 // so it stays gone after reload.
 import { useEffect, useRef, useState } from "react";
 
-import { deleteFrame, isAbortError, regenerateFrame } from "../api/client";
+import { adjustFrame, isAbortError, regenerateFrame } from "../api/client";
 import { useProjectStore } from "../state/project";
 
 export function FrameStrip() {
@@ -13,9 +13,9 @@ export function FrameStrip() {
     projectId,
     frames,
     setFrame,
-    setAnimation,
     action,
     activeProject,
+    activeClipId,
     mutation,
     beginMutation,
     endMutation,
@@ -45,9 +45,9 @@ export function FrameStrip() {
         projectId,
         index,
         activeProject?.provider,
-        { signal: controller.signal },
+        { signal: controller.signal, clipId: activeClipId },
       );
-      setFrame(projectId, frame);
+      setFrame(projectId, frame, activeClipId);
     } catch (e) {
       if (!isAbortError(e)) setError(e instanceof Error ? e.message : "Regenerate failed.");
     } finally {
@@ -57,8 +57,8 @@ export function FrameStrip() {
     }
   }
 
-  async function onDelete(index: number) {
-    if (!projectId || action === null || bulkBusy) return;
+  async function onAdjust(index: number, adjustment: Parameters<typeof adjustFrame>[3]) {
+    if (!projectId || !activeClipId || action === null || bulkBusy) return;
     const token = beginMutation("frame", projectId);
     if (token === null) return;
     const controller = new AbortController();
@@ -66,17 +66,10 @@ export function FrameStrip() {
     setBusyIndex(index);
     setError(null);
     try {
-      const result = await deleteFrame(projectId, index, { signal: controller.signal });
-      setAnimation(
-        projectId,
-        result.action,
-        result.fps,
-        result.frames,
-        result.direction,
-        result.provider,
-      );
+      const frame = await adjustFrame(projectId, activeClipId, index, adjustment);
+      setFrame(projectId, frame, activeClipId);
     } catch (e) {
-      if (!isAbortError(e)) setError(e instanceof Error ? e.message : "Delete failed.");
+      if (!isAbortError(e)) setError(e instanceof Error ? e.message : "Repair failed.");
     } finally {
       requestRef.current = null;
       setBusyIndex(null);
@@ -101,9 +94,9 @@ export function FrameStrip() {
           projectId,
           index,
           activeProject?.provider,
-          { signal: controller.signal },
+          { signal: controller.signal, clipId: activeClipId },
         );
-        setFrame(projectId, frame);
+        setFrame(projectId, frame, activeClipId);
         if (frame.status === "failed") failures += 1;
       } catch (reason) {
         if (!isAbortError(reason)) failures += 1;
@@ -135,7 +128,7 @@ export function FrameStrip() {
       )}
       <ul>
         {frames.map((frame) => (
-          <li key={frame.index} className={`frame frame-${frame.status}`}>
+          <li key={frame.index} className={`frame frame-${frame.status} ${frame.enabled === false ? "frame-disabled" : ""}`}>
             {frame.status === "ok" && frame.url ? (
               <img src={frame.url} alt={`Frame ${frame.index + 1}`} className="sprite" />
             ) : (
@@ -155,12 +148,19 @@ export function FrameStrip() {
               </button>
               <button
                 type="button"
-                onClick={() => onDelete(frame.index)}
+                onClick={() => onAdjust(frame.index, { enabled: frame.enabled === false })}
                 disabled={bulkBusy || mutation !== null || busyIndex !== null}
-                aria-label={`Delete frame ${frame.index + 1}`}
+                aria-label={`${frame.enabled === false ? "Enable" : "Disable"} frame ${frame.index + 1}`}
               >
-                Delete
+                {frame.enabled === false ? "Enable" : "Disable"}
               </button>
+              <div className="nudge-controls" aria-label={`Nudge frame ${frame.index + 1}`}>
+                <button type="button" onClick={() => onAdjust(frame.index, { nudge_x: (frame.nudge_x ?? 0) - 1 })} disabled={mutation !== null}>←</button>
+                <button type="button" onClick={() => onAdjust(frame.index, { nudge_y: (frame.nudge_y ?? 0) - 1 })} disabled={mutation !== null}>↑</button>
+                <button type="button" onClick={() => onAdjust(frame.index, { nudge_y: (frame.nudge_y ?? 0) + 1 })} disabled={mutation !== null}>↓</button>
+                <button type="button" onClick={() => onAdjust(frame.index, { nudge_x: (frame.nudge_x ?? 0) + 1 })} disabled={mutation !== null}>→</button>
+              </div>
+              <button type="button" onClick={() => onAdjust(frame.index, { reset: true })} disabled={mutation !== null}>Reset</button>
             </div>
           </li>
         ))}

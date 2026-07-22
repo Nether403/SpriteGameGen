@@ -72,7 +72,7 @@ describe("AnimatePanel directions", () => {
     render(<AnimatePanel />);
 
     expect(await screen.findByText("Top-down / 2.5D base sprite")).toBeDefined();
-    fireEvent.click(screen.getByRole("radio", { name: "Up-left" }));
+    fireEvent.click(await screen.findByRole("radio", { name: "Up-left" }));
     fireEvent.click(screen.getByRole("button", { name: "Generate animation" }));
 
     await waitFor(() => expect(animate).toHaveBeenCalled());

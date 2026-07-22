@@ -20,7 +20,8 @@ from typing import Callable, Iterator
 from filelock import FileLock, Timeout
 from PIL import Image
 
-from app.models import Project, ProjectHealth, FrameStatus
+from app.manifest import load_manifest
+from app.models import Frame, Project, ProjectHealth, FrameStatus
 
 _SAFE_NAME = re.compile(r"^[A-Za-z0-9_-]+$")
 MANIFEST_NAME = "project.json"
@@ -181,7 +182,9 @@ class ProjectStore:
         expected_revision: int,
         images: dict[str, Image.Image] | None = None,
         texts: dict[str, str] | None = None,
+        blobs: dict[str, bytes] | None = None,
         delete_images: set[str] | None = None,
+        delete_files: set[str] | None = None,
     ) -> Path:
         """Commit project assets and its manifest as one revision-checked unit.
 
@@ -198,10 +201,18 @@ class ProjectStore:
             self._asset_target(pid, filename, require_file=False): content
             for filename, content in (texts or {}).items()
         }
+        blob_targets = {
+            self._asset_target(pid, filename, require_file=False): content
+            for filename, content in (blobs or {}).items()
+        }
         delete_targets = {
             self._asset_target(pid, f"{name}.png", require_file=False)
             for name in (delete_images or set())
-        } - set(image_targets)
+        } | {
+            self._asset_target(pid, filename, require_file=False)
+            for filename in (delete_files or set())
+        }
+        delete_targets -= set(image_targets) | set(text_targets) | set(blob_targets)
 
         staged: dict[Path, Path] = {}
         try:
@@ -215,6 +226,11 @@ class ProjectStore:
                     lambda temporary, value=content: temporary.write_text(
                         value, encoding="utf-8", newline=""
                     ),
+                )
+            for target, content in blob_targets.items():
+                staged[target] = self._stage_file(
+                    target,
+                    lambda temporary, value=content: temporary.write_bytes(value),
                 )
             with self.project_lock(pid):
                 current_revision = self._current_revision_unlocked(pid)
@@ -239,6 +255,7 @@ class ProjectStore:
         expected_revision: int,
         images: dict[str, Image.Image] | None = None,
         texts: dict[str, str] | None = None,
+        blobs: dict[str, bytes] | None = None,
     ) -> None:
         """Commit derived assets only if the source project revision is unchanged."""
 
@@ -249,6 +266,10 @@ class ProjectStore:
         text_targets = {
             self._asset_target(pid, filename, require_file=False): content
             for filename, content in (texts or {}).items()
+        }
+        blob_targets = {
+            self._asset_target(pid, filename, require_file=False): content
+            for filename, content in (blobs or {}).items()
         }
         staged: dict[Path, Path] = {}
         try:
@@ -262,6 +283,11 @@ class ProjectStore:
                     lambda temporary, value=content: temporary.write_text(
                         value, encoding="utf-8", newline=""
                     ),
+                )
+            for target, content in blob_targets.items():
+                staged[target] = self._stage_file(
+                    target,
+                    lambda temporary, value=content: temporary.write_bytes(value),
                 )
             with self.project_lock(pid):
                 if self._current_revision_unlocked(pid) != expected_revision:
@@ -375,7 +401,7 @@ class ProjectStore:
             raise ProjectConflictError("project changed during the operation")
 
         persisted = project.model_copy(deep=True)
-        persisted.schema_version = max(1, persisted.schema_version)
+        persisted.schema_version = 2
         persisted.revision = current_revision + 1
         persisted.updated_at = datetime.now(timezone.utc)
         self._atomic_replace(
@@ -401,11 +427,16 @@ class ProjectStore:
         if data.get("id") != pid:
             raise ValueError("manifest project id does not match its directory")
         manifest_time = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
-        data.setdefault("schema_version", 1)
-        data.setdefault("revision", 0)
-        data.setdefault("created_at", manifest_time)
-        data.setdefault("updated_at", manifest_time)
-        return Project.model_validate(data)
+        project = load_manifest(data, fallback_time=manifest_time)
+        if not project.clips and not project.frames:
+            project.frames = [
+                Frame(
+                    index=0,
+                    source_filename=project.source_sprite_filename,
+                    rendered_filename=project.sprite_filename,
+                )
+            ]
+        return project
 
     def get_project_record(self, pid: str) -> ProjectRecord:
         with self.project_lock(pid):
@@ -424,11 +455,14 @@ class ProjectStore:
                 return ProjectRecord(pid, None, ProjectHealth.CORRUPT, updated_at, has_sprite)
 
             healthy = has_sprite
-            if healthy and project.action is not None:
+            if healthy:
                 healthy = all(
                     frame.status is FrameStatus.FAILED
-                    or (project_dir / f"frame_{frame.index}.png").is_file()
-                    for frame in project.frames
+                    or not frame.enabled
+                    or bool(frame.rendered_filename)
+                    and (project_dir / str(frame.rendered_filename)).is_file()
+                    for clip in project.clips.values()
+                    for frame in clip.frames
                 )
             health = ProjectHealth.READY if healthy else ProjectHealth.INCOMPLETE
             return ProjectRecord(pid, project, health, project.updated_at, has_sprite)

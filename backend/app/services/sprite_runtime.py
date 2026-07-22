@@ -9,7 +9,7 @@ from typing import Callable
 from PIL import Image
 
 from app.models import ImageProviderName
-from app.services.provider_selection import ProviderRegistry
+from app.services.provider_selection import ProviderRegistry, ProviderRequirements
 from app.services.sprite_service import OperationControl, SpriteService
 from app.storage.project_store import ProjectStore
 
@@ -68,8 +68,12 @@ class SpriteRuntime:
             remover=self.remover,
         )
 
-    def service_for_provider(self, requested: ImageProviderName) -> SpriteService:
-        resolved = self.providers.resolve(requested)
+    def service_for_provider(
+        self,
+        requested: ImageProviderName,
+        requirements: ProviderRequirements | None = None,
+    ) -> SpriteService:
+        resolved = self.providers.resolve(requested, requirements)
         return SpriteService(
             store=self.store,
             image_provider=resolved.provider,
@@ -78,9 +82,14 @@ class SpriteRuntime:
             remover=self.remover,
         )
 
-    def service_for_project(self, project_id: str) -> SpriteService:
+    def service_for_project(
+        self, project_id: str, clip_id: str | None = None
+    ) -> SpriteService:
         project = self.store.read_manifest(project_id)
-        resolved = self.providers.resolve_stored(project.image_provider)
+        clip = project.clips.get(clip_id or project.active_clip_id or "")
+        resolved = self.providers.resolve_stored(
+            clip.image_provider if clip else project.image_provider
+        )
         return SpriteService(
             store=self.store,
             image_provider=resolved.provider,

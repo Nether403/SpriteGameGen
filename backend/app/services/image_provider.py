@@ -9,6 +9,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 import threading
+from enum import Enum
 from typing import Protocol
 
 from PIL import Image
@@ -26,6 +27,14 @@ class ImageSafetyBlockedError(ImageProviderError):
 
 class ImageProviderTimeoutError(ImageProviderError):
     """A provider request exceeded its configured timeout."""
+
+
+class ProviderCapability(str, Enum):
+    GENERATE = "generate"
+    EDIT = "edit"
+    IDENTITY_REFERENCE = "identity_reference"
+    POSE_REFERENCE = "pose_reference"
+    SEED = "seed"
 
 
 _PROVIDER_SEMAPHORE_LOCK = threading.Lock()
@@ -66,6 +75,7 @@ class ImageProvider(Protocol):
     """The image operations required by the sprite workflow."""
 
     max_concurrency: int
+    capabilities: frozenset[ProviderCapability]
 
     def generate(
         self,

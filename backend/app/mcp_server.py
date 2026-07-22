@@ -39,13 +39,18 @@ from app.models import (
     MAX_SHEET_PIXELS,
     Project,
     ProjectHealth,
+    LoopMode,
+    PaletteMode,
+    RenderSettings,
     PromptSource,
     Style,
     ViewMode,
     directions_for,
 )
 from app.services import prompt_builder
-from app.services.provider_selection import ProviderUnavailableError
+from app.services.provider_selection import ProviderRequirements, ProviderUnavailableError
+from app.services.image_provider import ProviderCapability
+from app.recipes import RecipeV1, capture_project_recipe, validate_recipe_semantics
 from app.services.sprite_runtime import SpriteRuntime
 from app.services.sprite_service import (
     AnimationResult,
@@ -68,6 +73,7 @@ class MCPProviderChoice(str, Enum):
     AUTO = "auto"
     AZURE = "azure"
     GEMINI = "gemini"
+    COMFYUI = "comfyui"
 
 
 class MCPOperationOutcome(str, Enum):
@@ -93,6 +99,11 @@ class MCPFrame(BaseModel):
     resource_uri: str | None = Field(
         default=None, description="MCP resource URI for a usable frame."
     )
+    enabled: bool = True
+    nudge_x: int = 0
+    nudge_y: int = 0
+    duration_ms: int | None = None
+    seed: int | None = None
 
 
 class MCPProject(BaseModel):
@@ -112,6 +123,8 @@ class MCPProject(BaseModel):
     action: str | None
     fps: int | None
     manifest_resource_uri: str
+    active_clip_id: str | None = None
+    clip_count: int = 0
 
 
 class MCPProjectSummary(BaseModel):
@@ -186,6 +199,21 @@ class MCPExportResult(BaseModel):
     sheet_resource_uri: str
     atlas_path: str
     atlas_resource_uri: str
+    frames_path: str | None = None
+    frames_resource_uri: str | None = None
+
+
+class MCPBundleResult(BaseModel):
+    outcome: Literal[MCPOperationOutcome.COMPLETE] = MCPOperationOutcome.COMPLETE
+    project_id: str
+    bundle_path: str
+    bundle_resource_uri: str
+
+
+class MCPRecipeResult(BaseModel):
+    valid: bool = True
+    recipe: dict
+    digest: str
 
 
 class MCPProviderCapability(BaseModel):
@@ -195,6 +223,7 @@ class MCPProviderCapability(BaseModel):
     experimental: bool
     description: str
     unavailable_reason: str | None
+    capabilities: list[ProviderCapability] = []
 
 
 class MCPPreset(BaseModel):
@@ -297,7 +326,7 @@ def _frame_filenames(project: Project) -> list[str | None]:
     return [
         None
         if frame.status is FrameStatus.FAILED
-        else ("sprite.png" if project.action is None else f"frame_{frame.index}.png")
+        else frame.rendered_filename
         for frame in project.frames
     ]
 
@@ -316,6 +345,11 @@ def _project_dto(
                 status=frame.status,
                 error_code=frame.error_code,
                 error_message=frame.error_message,
+                enabled=frame.enabled,
+                nudge_x=frame.nudge_x,
+                nudge_y=frame.nudge_y,
+                duration_ms=frame.duration_ms,
+                seed=frame.seed,
                 path=(
                     _asset_path(runtime, project.id, filename) if filename else None
                 ),
@@ -341,6 +375,8 @@ def _project_dto(
         action=project.action,
         fps=project.fps,
         manifest_resource_uri=_manifest_uri(project.id),
+        active_clip_id=project.active_clip_id,
+        clip_count=len(project.clips),
     )
 
 
@@ -674,13 +710,18 @@ def create_mcp_server(*, runtime: SpriteRuntime | None = None) -> FastMCP:
             MCPProviderChoice,
             Field(description="Image provider selection: auto, azure, or gemini."),
         ] = MCPProviderChoice.AUTO,
+        seed: Annotated[int | None, Field(ge=0, le=2**63 - 1)] = None,
     ) -> MCPGenerateResult:
         """Generate an image with provider billing and create a project; it does not overwrite existing files."""
 
         def operation(control: OperationControl) -> MCPGenerateResult:
             active = _runtime(ctx)
+            required = {ProviderCapability.GENERATE}
+            if seed is not None:
+                required.add(ProviderCapability.SEED)
             result = active.service_for_provider(
-                ImageProviderName(provider.value)
+                ImageProviderName(provider.value),
+                ProviderRequirements(frozenset(required)),
             ).generate_sprite(
                 GenerateSpriteInput(
                     prompt=prompt,
@@ -688,6 +729,7 @@ def create_mcp_server(*, runtime: SpriteRuntime | None = None) -> FastMCP:
                     view_mode=view_mode,
                     direction=direction,
                     enhanced_prompt=enhanced_prompt,
+                    seed=seed,
                 ),
                 control=control,
             )
@@ -736,18 +778,29 @@ def create_mcp_server(*, runtime: SpriteRuntime | None = None) -> FastMCP:
             int,
             Field(ge=1, le=60, description="Persisted preview playback rate."),
         ] = 8,
+        clip_id: Annotated[
+            str | None,
+            Field(pattern=r"^[A-Za-z0-9_-]+$", description="Clip to replace; omitted targets the active clip."),
+        ] = None,
+        clip_name: Annotated[
+            str | None, Field(min_length=1, max_length=100)
+        ] = None,
+        seed: Annotated[int | None, Field(ge=0, le=2**63 - 1)] = None,
     ) -> MCPAnimationResult:
         """Run image edits with provider billing and overwrite animation frames and metadata."""
 
         def operation(control: OperationControl) -> MCPAnimationResult:
             active = _runtime(ctx)
-            result = active.service_for_project(project_id).animate(
+            result = active.service_for_project(project_id, clip_id).animate(
                 AnimateRequest(
                     project_id=project_id,
                     action=action,
                     direction=direction,
                     frames=frames,
                     fps=fps,
+                    clip_id=clip_id,
+                    clip_name=clip_name,
+                    seed=seed,
                 ),
                 control=control,
             )
@@ -782,16 +835,32 @@ def create_mcp_server(*, runtime: SpriteRuntime | None = None) -> FastMCP:
             int, Field(ge=0, description="Zero-based frame index to replace.")
         ],
         ctx: Context,
+        clip_id: Annotated[
+            str | None, Field(pattern=r"^[A-Za-z0-9_-]+$")
+        ] = None,
     ) -> MCPFrameResult:
         """Run one image edit with provider billing and overwrite the selected persisted frame."""
 
         def operation(control: OperationControl) -> MCPFrameResult:
             active = _runtime(ctx)
-            result = active.service_for_project(project_id).regenerate_frame(
-                project_id, index, control=control
+            result = active.service_for_project(project_id, clip_id).regenerate_frame(
+                project_id, index, clip_id=clip_id, control=control
             )
             project = _project_dto(active, result.project)
-            frame = project.frames[index]
+            filename = result.filename
+            frame = MCPFrame(
+                index=result.frame.index,
+                status=result.frame.status,
+                error_code=result.frame.error_code,
+                error_message=result.frame.error_message,
+                enabled=result.frame.enabled,
+                nudge_x=result.frame.nudge_x,
+                nudge_y=result.frame.nudge_y,
+                duration_ms=result.frame.duration_ms,
+                seed=result.frame.seed,
+                path=_asset_path(active, project_id, filename) if filename else None,
+                resource_uri=_resource_uri(project_id, filename) if filename else None,
+            )
             return MCPFrameResult(
                 outcome=(
                     MCPOperationOutcome.COMPLETE
@@ -837,6 +906,9 @@ def create_mcp_server(*, runtime: SpriteRuntime | None = None) -> FastMCP:
                 description="Optional fixed sheet column count.",
             ),
         ] = None,
+        clip_id: Annotated[
+            str | None, Field(pattern=r"^[A-Za-z0-9_-]+$")
+        ] = None,
     ) -> MCPExportResult:
         """Pack locally with no provider billing; overwrite matching sheet and atlas outputs."""
 
@@ -844,7 +916,7 @@ def create_mcp_server(*, runtime: SpriteRuntime | None = None) -> FastMCP:
             active = _runtime(ctx)
             result = active.storage_service().export_sheet(
                 project_id,
-                ExportOptions(format=format, padding=padding, cols=cols),
+                ExportOptions(format=format, padding=padding, cols=cols, clip_id=clip_id),
                 control=control,
             )
             project = active.store.read_manifest(project_id)
@@ -860,9 +932,212 @@ def create_mcp_server(*, runtime: SpriteRuntime | None = None) -> FastMCP:
                 atlas_resource_uri=_resource_uri(
                     project_id, result.atlas_filename
                 ),
+                frames_path=_asset_path(active, project_id, result.frames_filename),
+                frames_resource_uri=_resource_uri(project_id, result.frames_filename),
             )
 
         return await _run_creative_tool("export_sheet", ctx, operation)
+
+    @server.tool(
+        annotations=_annotations(
+            "Set Render Settings", read_only=False, destructive=True,
+            idempotent=True, open_world=False,
+        )
+    )
+    def set_render_settings(
+        project_id: ProjectId,
+        ctx: Context,
+        target_width: Annotated[int | None, Field(ge=1, le=1024)] = None,
+        target_height: Annotated[int | None, Field(ge=1, le=1024)] = None,
+        output_scale: Annotated[int, Field(ge=1, le=16)] = 1,
+        color_limit: Annotated[int, Field(ge=1, le=256)] = 32,
+        palette_mode: PaletteMode = PaletteMode.AUTO,
+        preset_palette: str | None = None,
+        custom_palette: list[str] | None = None,
+    ) -> MCPProject:
+        """Rerender and overwrite outputs locally; no provider call or billing occurs."""
+
+        def operation() -> MCPProject:
+            active = _runtime(ctx)
+            project = active.storage_service().set_render_settings(
+                project_id,
+                RenderSettings(
+                    target_width=target_width,
+                    target_height=target_height,
+                    output_scale=output_scale,
+                    color_limit=color_limit,
+                    palette_mode=palette_mode,
+                    preset_palette=preset_palette,
+                    custom_palette=custom_palette or [],
+                ),
+            )
+            return _project_dto(active, project)
+
+        return _safe_tool("set_render_settings", operation)
+
+    @server.tool(
+        annotations=_annotations(
+            "Set Frame Adjustment", read_only=False, destructive=True,
+            idempotent=True, open_world=False,
+        )
+    )
+    def set_frame_adjustment(
+        project_id: ProjectId,
+        index: Annotated[int, Field(ge=0)],
+        ctx: Context,
+        clip_id: Annotated[str | None, Field(pattern=r"^[A-Za-z0-9_-]+$")] = None,
+        enabled: bool | None = None,
+        nudge_x: Annotated[int | None, Field(ge=-4096, le=4096)] = None,
+        nudge_y: Annotated[int | None, Field(ge=-4096, le=4096)] = None,
+        horizontal_flip: bool | None = None,
+        reset: bool = False,
+    ) -> MCPFrameResult:
+        """Curate and overwrite one frame locally; no provider call or billing occurs."""
+
+        def operation() -> MCPFrameResult:
+            active = _runtime(ctx)
+            result = active.storage_service().set_frame_adjustment(
+                project_id,
+                index,
+                clip_id=clip_id,
+                enabled=enabled,
+                nudge_x=nudge_x,
+                nudge_y=nudge_y,
+                horizontal_flip=horizontal_flip,
+                reset=reset,
+            )
+            project = _project_dto(active, result.project)
+            filename = result.filename
+            frame = MCPFrame(
+                index=result.frame.index,
+                status=result.frame.status,
+                error_code=result.frame.error_code,
+                error_message=result.frame.error_message,
+                enabled=result.frame.enabled,
+                nudge_x=result.frame.nudge_x,
+                nudge_y=result.frame.nudge_y,
+                duration_ms=result.frame.duration_ms,
+                seed=result.frame.seed,
+                path=_asset_path(active, project_id, filename) if filename else None,
+                resource_uri=_resource_uri(project_id, filename) if filename else None,
+            )
+            return MCPFrameResult(
+                outcome=MCPOperationOutcome.COMPLETE,
+                project=project,
+                frame=frame,
+                frame_path=frame.path,
+                frame_resource_uri=frame.resource_uri,
+            )
+
+        return _safe_tool("set_frame_adjustment", operation)
+
+    @server.tool(
+        annotations=_annotations(
+            "Update Animation Clip", read_only=False, destructive=True,
+            idempotent=True, open_world=False,
+        )
+    )
+    def update_clip(
+        project_id: ProjectId,
+        clip_id: Annotated[str, Field(pattern=r"^[A-Za-z0-9_-]+$")],
+        ctx: Context,
+        name: Annotated[str | None, Field(min_length=1, max_length=100)] = None,
+        fps: Annotated[int | None, Field(ge=1, le=60)] = None,
+        enabled: bool | None = None,
+        loop_mode: LoopMode | None = None,
+    ) -> MCPProject:
+        """Overwrite clip metadata locally; no provider billing occurs."""
+        def operation() -> MCPProject:
+            active = _runtime(ctx)
+            result = active.storage_service().update_clip(
+                project_id, clip_id, name=name, fps=fps,
+                enabled=enabled, loop_mode=loop_mode,
+            )
+            return _project_dto(active, result.project)
+
+        return _safe_tool("update_clip", operation)
+
+    @server.tool(
+        annotations=_annotations(
+            "Delete Animation Clip", read_only=False, destructive=True,
+            idempotent=False, open_world=False,
+        )
+    )
+    def delete_clip(
+        project_id: ProjectId,
+        clip_id: Annotated[str, Field(pattern=r"^[A-Za-z0-9_-]+$")],
+        ctx: Context,
+    ) -> MCPProject:
+        """Delete a clip and overwrite project state locally; no provider billing occurs."""
+        def operation() -> MCPProject:
+            active = _runtime(ctx)
+            result = active.storage_service().delete_clip(project_id, clip_id)
+            return _project_dto(active, result.project)
+
+        return _safe_tool("delete_clip", operation)
+
+    @server.tool(
+        annotations=_annotations(
+            "Export Character Bundle", read_only=False, destructive=True,
+            idempotent=True, open_world=False,
+        )
+    )
+    def export_character_bundle(
+        project_id: ProjectId,
+        ctx: Context,
+        scope: Literal["active", "one", "all_enabled"] = "active",
+        clip_id: Annotated[str | None, Field(pattern=r"^[A-Za-z0-9_-]+$")] = None,
+        engine_profile: Literal["godot4_animatedsprite2d"] | None = None,
+    ) -> MCPBundleResult:
+        """Export and overwrite a local bundle; no provider billing occurs."""
+        def operation() -> MCPBundleResult:
+            active = _runtime(ctx)
+            result = active.storage_service().export_character_bundle(
+                project_id, scope=scope, clip_id=clip_id,
+                engine_profile=engine_profile,
+            )
+            return MCPBundleResult(
+                project_id=project_id,
+                bundle_path=_asset_path(active, project_id, result.bundle_filename),
+                bundle_resource_uri=_resource_uri(project_id, result.bundle_filename),
+            )
+
+        return _safe_tool("export_character_bundle", operation)
+
+    @server.tool(
+        annotations=_annotations(
+            "Validate Sprite Recipe", read_only=True, destructive=False,
+            idempotent=True, open_world=False,
+        )
+    )
+    def validate_recipe(recipe_json: str, ctx: Context) -> MCPRecipeResult:
+        """Validate a recipe with no billing and without overwrite operations."""
+
+        def operation() -> MCPRecipeResult:
+            recipe = RecipeV1.model_validate_json(recipe_json)
+            validate_recipe_semantics(recipe)
+            return MCPRecipeResult(
+                recipe=recipe.model_dump(mode="json"), digest=recipe.digest()
+            )
+
+        return _safe_tool("validate_recipe", operation)
+
+    @server.tool(
+        annotations=_annotations(
+            "Get Project Recipe", read_only=True, destructive=False,
+            idempotent=True, open_world=False,
+        )
+    )
+    def get_project_recipe(project_id: ProjectId, ctx: Context) -> MCPRecipeResult:
+        """Capture a recipe with no billing and without overwrite operations."""
+
+        def operation() -> MCPRecipeResult:
+            recipe = capture_project_recipe(_runtime(ctx).store.read_manifest(project_id))
+            return MCPRecipeResult(
+                recipe=recipe.model_dump(mode="json"), digest=recipe.digest()
+            )
+
+        return _safe_tool("get_project_recipe", operation)
 
     @server.resource(
         "sprite://projects/{project_id}/manifest",

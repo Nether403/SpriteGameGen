@@ -1,0 +1,41 @@
+{
+  "format": "sprite-action-pack",
+  "format_version": 1,
+  "id": "spritegamegen-builtins",
+  "version": "1.0.0",
+  "actions": [
+    {
+      "id": "idle", "motion": "a subtle idle breathing cycle", "min_frames": 2,
+      "max_frames": 4, "default_frames": 2, "default_fps": 6,
+      "phases": ["lowest relaxed breathing pose", "chest raised at the top of a breath"]
+    },
+    {
+      "id": "walk", "motion": "a readable walking cycle", "min_frames": 4,
+      "max_frames": 8, "default_frames": 6, "default_fps": 8,
+      "phases": ["forward contact", "down compression", "passing pose", "high point", "opposite contact", "opposite passing"],
+      "guides": [
+        {"kind": "pose", "points": [[0.5, 0.12], [0.5, 0.48], [0.25, 0.88], [0.75, 0.78]]},
+        {"kind": "pose", "points": [[0.5, 0.18], [0.5, 0.55], [0.35, 0.9], [0.68, 0.82]]},
+        {"kind": "pose", "points": [[0.5, 0.12], [0.5, 0.48], [0.45, 0.9], [0.62, 0.72]]},
+        {"kind": "pose", "points": [[0.5, 0.08], [0.5, 0.44], [0.62, 0.86], [0.38, 0.72]]},
+        {"kind": "pose", "points": [[0.5, 0.12], [0.5, 0.48], [0.75, 0.88], [0.25, 0.78]]},
+        {"kind": "pose", "points": [[0.5, 0.18], [0.5, 0.55], [0.65, 0.9], [0.32, 0.82]]}
+      ]
+    },
+    {
+      "id": "run", "motion": "a dynamic forward-leaning run cycle", "min_frames": 4,
+      "max_frames": 8, "default_frames": 6, "default_fps": 12,
+      "phases": ["foot strike", "compression", "launch", "airborne", "opposite strike", "opposite airborne"]
+    },
+    {
+      "id": "attack", "motion": "a decisive attack swing", "min_frames": 4,
+      "max_frames": 6, "default_frames": 4, "default_fps": 10, "loop": false,
+      "phases": ["anticipation wind-up", "attack release", "impact follow-through", "recovery"]
+    },
+    {
+      "id": "jump", "motion": "a complete jump arc", "min_frames": 4,
+      "max_frames": 6, "default_frames": 4, "default_fps": 8, "loop": false,
+      "phases": ["crouched anticipation", "takeoff", "airborne apex", "landing compression"]
+    }
+  ]
+}

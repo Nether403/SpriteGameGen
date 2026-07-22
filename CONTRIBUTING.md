@@ -75,8 +75,13 @@ Before submitting a pull request:
 3. Update documentation and `CHANGELOG.md` when behavior changes.
 4. Review the diff for secrets, generated assets, and unrelated edits.
 5. Describe the change, its user impact, and the verification performed.
+6. Run `gitleaks detect --source . --redact --no-banner` and
+   `uv run python ../scripts/check_dependency_licenses.py` when available.
+7. Run `uv run python ../scripts/doctor.py` and `uv run python ../scripts/smoke_mcp.py`.
 
 Not every command applies to documentation-only changes. State which checks
 were not run and why.
 
 Contributions are submitted under the Apache License 2.0 in this repository.
+Release maintainers must also follow [docs/release-process.md](docs/release-process.md)
+and preserve the independent contracts in [docs/version-contracts.md](docs/version-contracts.md).

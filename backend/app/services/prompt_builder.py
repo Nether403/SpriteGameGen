@@ -8,6 +8,8 @@ consistent with the original sprite.
 from __future__ import annotations
 
 from app.models import Direction, Style, ViewMode, validate_direction
+from app.actions import load_action_catalog
+from app.config import get_settings
 
 # Shared directives that make the deterministic pipeline (bg removal + trim)
 # reliable regardless of style.
@@ -33,6 +35,10 @@ def _camera_direction(view_mode: ViewMode, direction: Direction) -> str:
         f"{_CAMERA_DIRECTIVES[view_mode]}, facing and moving "
         f"{readable_direction}."
     )
+
+
+def camera_direction_prompt(view_mode: ViewMode, direction: Direction) -> str:
+    return _camera_direction(view_mode, direction)
 
 _STYLE_DIRECTIVES: dict[Style, str] = {
     Style.PIXEL: (
@@ -92,47 +98,33 @@ _WALK_PHASES = (
     "folded back; the far leg's heel lifts as the body reaches its highest point",
 )
 
-PRESETS: list[dict] = [
-    {
-        "action": "idle",
-        "min_frames": 2,
-        "max_frames": 4,
-        "default_frames": 2,
-        "pose": "in a subtle idle breathing pose",
-    },
-    {
-        "action": "walk",
-        "min_frames": 4,
-        "max_frames": 8,
-        "default_frames": 6,
-        "pose": "mid-stride walking, one foot forward",
-        "phases": _WALK_PHASES,
-        "change_directive": _WALK_POSE_CHANGE,
-    },
-    {
-        "action": "run",
-        "min_frames": 4,
-        "max_frames": 8,
-        "default_frames": 6,
-        "pose": "in a dynamic running stride, leaning forward",
-    },
-    {
-        "action": "attack",
-        "min_frames": 4,
-        "max_frames": 6,
-        "default_frames": 4,
-        "pose": "in an attack swing motion",
-    },
-    {
-        "action": "jump",
-        "min_frames": 4,
-        "max_frames": 6,
-        "default_frames": 4,
-        "pose": "in a jumping motion, airborne",
-    },
-]
+def _presets() -> list[dict]:
+    configured = get_settings().action_packs_dir or None
+    catalog = load_action_catalog(configured)
+    presets = [
+        {
+            "action": action.id,
+            "min_frames": action.min_frames,
+            "max_frames": action.max_frames,
+            "default_frames": action.default_frames,
+            "pose": action.motion,
+            "phases": tuple(action.phases),
+            "guides": [guide.model_dump() for guide in action.guides],
+            "_reference": catalog.references[action.id],
+            "_version": action.version,
+            "_digest": action.digest(),
+            **({"change_directive": action.change_directive} if action.change_directive else {}),
+        }
+        for action in catalog.actions.values()
+    ]
+    walk = next((item for item in presets if item["action"] == "walk"), None)
+    if walk is not None:
+        walk["phases"] = _WALK_PHASES
+        walk["change_directive"] = _WALK_POSE_CHANGE
+    return presets
 
-_PRESETS_BY_ACTION: dict[str, dict] = {p["action"]: p for p in PRESETS}
+
+PRESETS: list[dict] = _presets()
 
 
 def build_generate_prompt(
@@ -152,12 +144,12 @@ def build_generate_prompt(
 
 def list_presets() -> list[dict]:
     """Return the preset action table (copied so callers can't mutate it)."""
-    return [dict(p) for p in PRESETS]
+    return [dict(p) for p in _presets()]
 
 
 def get_preset(action: str) -> dict:
     """Return a copy of the preset for ``action``. Raises KeyError if unknown."""
-    return dict(_PRESETS_BY_ACTION[action])
+    return dict({p["action"]: p for p in _presets()}[action])
 
 
 def frame_prompt(
@@ -172,7 +164,7 @@ def frame_prompt(
     ``index`` is 0-based internally; the rendered prompt shows a 1-based number.
     Raises KeyError for unknown actions, ValueError for out-of-range indices.
     """
-    preset = _PRESETS_BY_ACTION[action]
+    preset = {p["action"]: p for p in _presets()}[action]
     if total < 1:
         raise ValueError("total must be >= 1")
     if not (0 <= index < total):

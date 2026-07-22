@@ -1,0 +1,18 @@
+{
+  "format": "sprite-action-pack",
+  "format_version": 1,
+  "id": "example-acrobat",
+  "version": "1.0.0",
+  "actions": [
+    {
+      "id": "cartwheel",
+      "motion": "a complete sideways cartwheel",
+      "min_frames": 6,
+      "max_frames": 8,
+      "default_frames": 8,
+      "default_fps": 10,
+      "loop": false,
+      "phases": ["reach", "hands down", "legs vertical", "inverted split", "feet descend", "land"]
+    }
+  ]
+}

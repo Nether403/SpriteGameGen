@@ -2,6 +2,14 @@
 name = "sprite-game-asset-tool"
 version = "0.1.0"
 description = "Local AI sprite & game asset tool — Gemini generation + deterministic image pipeline"
+license = "Apache-2.0"
+authors = [{ name = "SpriteGameGen contributors" }]
+keywords = ["sprite", "animation", "pixel-art", "godot", "comfyui"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+]
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.115",
@@ -17,10 +25,19 @@ dependencies = [
     "mcp>=1.12,<2",
     "httpx>=0.27",
     "filelock>=3.15",
+    "numba>=0.59",
+    "packaging>=24",
 ]
+
+[project.urls]
+Homepage = "https://github.com/Nether403/SpriteGameGen"
+Repository = "https://github.com/Nether403/SpriteGameGen.git"
+Issues = "https://github.com/Nether403/SpriteGameGen/issues"
+Changelog = "https://github.com/Nether403/SpriteGameGen/blob/master/CHANGELOG.md"
 
 [project.scripts]
 sprite-mcp = "app.mcp_server:main"
+sprite = "app.cli:main"
 
 [project.optional-dependencies]
 dev = [
@@ -35,6 +52,9 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["app*"]
+
+[tool.setuptools.package-data]
+"app.data" = ["*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

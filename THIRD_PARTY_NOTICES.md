@@ -31,3 +31,11 @@ shipped by the dependency. Any policy exception must be narrowly recorded in
 the checker's reviewed exception table with the exact ecosystem, package,
 version, declared license, and a reason. Revalidate existing exceptions when a
 dependency version or its license metadata changes.
+
+## Reviewed runtime exceptions
+
+The offline policy records exact-version reviews for `certifi` (MPL-2.0 trust
+data), `tqdm` (MPL-2.0 AND MIT, pulled by rembg), and `llvmlite` (Numba's
+BSD-licensed LLVM binding whose wheel metadata omits a machine-readable license
+expression). Any version or declared-license change invalidates the exception
+and requires another review.

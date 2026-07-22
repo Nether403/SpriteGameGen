@@ -38,6 +38,20 @@ TOOL_NAMES = {
     "animate",
     "regenerate_frame",
     "export_sheet",
+    "set_render_settings",
+    "set_frame_adjustment",
+    "update_clip",
+    "delete_clip",
+    "export_character_bundle",
+    "validate_recipe",
+    "get_project_recipe",
+}
+
+PROJECT_FIELDS = {
+    "id", "prompt", "enhanced_prompt", "prompt_source", "provider", "style",
+    "view_mode", "direction", "schema_version", "revision", "created_at",
+    "updated_at", "frames", "action", "fps", "manifest_resource_uri",
+    "active_clip_id", "clip_count",
 }
 
 INPUT_FIELDS = {
@@ -52,10 +66,18 @@ INPUT_FIELDS = {
         "direction",
         "enhanced_prompt",
         "provider",
+        "seed",
     },
-    "animate": {"project_id", "action", "direction", "frames", "fps"},
-    "regenerate_frame": {"project_id", "index"},
-    "export_sheet": {"project_id", "format", "padding", "cols"},
+    "animate": {"project_id", "action", "direction", "frames", "fps", "clip_id", "clip_name", "seed"},
+    "regenerate_frame": {"project_id", "index", "clip_id"},
+    "export_sheet": {"project_id", "format", "padding", "cols", "clip_id"},
+    "set_render_settings": {"project_id", "target_width", "target_height", "output_scale", "color_limit", "palette_mode", "preset_palette", "custom_palette"},
+    "set_frame_adjustment": {"project_id", "index", "clip_id", "enabled", "nudge_x", "nudge_y", "horizontal_flip", "reset"},
+    "update_clip": {"project_id", "clip_id", "name", "fps", "enabled", "loop_mode"},
+    "delete_clip": {"project_id", "clip_id"},
+    "export_character_bundle": {"project_id", "scope", "clip_id", "engine_profile"},
+    "validate_recipe": {"recipe_json"},
+    "get_project_recipe": {"project_id"},
 }
 
 OUTPUT_FIELDS = {
@@ -103,7 +125,16 @@ OUTPUT_FIELDS = {
         "sheet_resource_uri",
         "atlas_path",
         "atlas_resource_uri",
+        "frames_path",
+        "frames_resource_uri",
     },
+    "set_render_settings": PROJECT_FIELDS,
+    "set_frame_adjustment": {"outcome", "project", "frame", "frame_path", "frame_resource_uri"},
+    "update_clip": PROJECT_FIELDS,
+    "delete_clip": PROJECT_FIELDS,
+    "export_character_bundle": {"outcome", "project_id", "bundle_path", "bundle_resource_uri"},
+    "validate_recipe": {"valid", "recipe", "digest"},
+    "get_project_recipe": {"valid", "recipe", "digest"},
 }
 
 ANNOTATIONS = {
@@ -115,6 +146,13 @@ ANNOTATIONS = {
     "animate": (False, True, False, True),
     "regenerate_frame": (False, True, False, True),
     "export_sheet": (False, True, True, False),
+    "set_render_settings": (False, True, True, False),
+    "set_frame_adjustment": (False, True, True, False),
+    "update_clip": (False, True, True, False),
+    "delete_clip": (False, True, False, False),
+    "export_character_bundle": (False, True, True, False),
+    "validate_recipe": (True, False, True, False),
+    "get_project_recipe": (True, False, True, False),
 }
 
 
@@ -213,6 +251,7 @@ async def test_exact_tool_inventory_annotations_and_schema_contract(tmp_path):
             "auto",
             "azure",
             "gemini",
+            "comfyui",
         ]
 
         animate = tools["animate"].inputSchema["properties"]
@@ -246,6 +285,11 @@ async def test_exact_tool_inventory_annotations_and_schema_contract(tmp_path):
             "error_message",
             "path",
             "resource_uri",
+            "enabled",
+            "nudge_x",
+            "nudge_y",
+            "duration_ms",
+            "seed",
         } == set(frame_schema["properties"])
         assert {"revision", "provider", "manifest_resource_uri"} <= set(
             project_schema["properties"]
@@ -272,6 +316,7 @@ async def test_capabilities_are_complete_and_unknown_arguments_are_sdk_limited(
         "auto",
         "azure",
         "gemini",
+        "comfyui",
         "hyperagent",
     ]
     assert [preset["action"] for preset in capabilities["presets"]] == [
@@ -472,6 +517,11 @@ async def test_project_dto_strips_stale_urls_and_exposes_paths_uris_and_errors(
         "error_message": "Image provider blocked this frame for safety.",
         "path": None,
         "resource_uri": None,
+        "enabled": True,
+        "nudge_x": 0,
+        "nudge_y": 0,
+        "duration_ms": None,
+        "seed": None,
     }
 
 

@@ -1,0 +1,25 @@
+{
+  "format": "sprite-recipe",
+  "format_version": 1,
+  "prompt": "a compact armored knight with a round shield",
+  "style": "pixel",
+  "view_mode": "side_scroller",
+  "direction": "left",
+  "provider": "auto",
+  "render_settings": {
+    "target_width": 48,
+    "target_height": 48,
+    "output_scale": 4,
+    "color_limit": 24,
+    "palette_mode": "shared_auto",
+    "preset_palette": null,
+    "custom_palette": []
+  },
+  "clips": [
+    {"action": "idle", "name": "Idle", "frames": 2, "fps": 6, "direction": "left", "loop_mode": "loop", "custom_motion": null, "first_pose": null, "last_pose": null},
+    {"action": "walk", "name": "Walk", "frames": 6, "fps": 8, "direction": "left", "loop_mode": "loop", "custom_motion": null, "first_pose": null, "last_pose": null}
+  ],
+  "exports": [
+    {"kind": "character_bundle", "scope": "all_enabled", "engine_profile": "godot4_animatedsprite2d"}
+  ]
+}
