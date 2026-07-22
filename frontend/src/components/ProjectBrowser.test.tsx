@@ -9,9 +9,10 @@ const listProjects = vi.fn();
 const getProject = vi.fn();
 const deleteProject = vi.fn();
 vi.mock("../api/client", () => ({
-  listProjects: () => listProjects(),
-  getProject: (id: string) => getProject(id),
-  deleteProject: (id: string) => deleteProject(id),
+  listProjects: (options?: { signal?: AbortSignal }) => listProjects(options),
+  getProject: (id: string, options?: { signal?: AbortSignal }) => getProject(id, options),
+  deleteProject: (id: string, options?: { signal?: AbortSignal }) =>
+    deleteProject(id, options),
 }));
 
 const ready: ProjectSummary = {
@@ -81,7 +82,7 @@ describe("ProjectBrowser", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Open project" }));
     await waitFor(() => expect(useProjectStore.getState().projectId).toBe("p1"));
-    expect(getProject).toHaveBeenCalledWith("p1");
+    expect(getProject).toHaveBeenCalledWith("p1", expect.objectContaining({ signal: expect.any(AbortSignal) }));
   });
 
   it("explains unhealthy projects and deletes after confirmation", async () => {
@@ -94,7 +95,12 @@ describe("ProjectBrowser", () => {
     expect((screen.getByRole("button", { name: "Cannot resume" }) as HTMLButtonElement).disabled).toBe(true);
 
     fireEvent.click(screen.getByRole("button", { name: "Delete project broken" }));
-    await waitFor(() => expect(deleteProject).toHaveBeenCalledWith("broken"));
+    await waitFor(() =>
+      expect(deleteProject).toHaveBeenCalledWith(
+        "broken",
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      ),
+    );
     expect(screen.queryByText("Unreadable project")).toBeNull();
   });
 });
