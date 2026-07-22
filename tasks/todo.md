@@ -155,6 +155,6 @@
 - [x] Repository: redacted secret scan
 - [x] Repository: dependency-license check
 - [x] Repository: `git diff --check`
-- [ ] Manual: legacy project migration and complete character workflow
+- [x] Manual: legacy project migration and complete character workflow
 - [x] Manual: configured cloud provider live acceptance
 - [ ] Manual: ComfyUI promotion matrix for advertised capabilities
