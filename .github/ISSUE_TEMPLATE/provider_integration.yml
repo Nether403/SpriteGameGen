@@ -1,0 +1,77 @@
+name: Provider integration
+description: Propose or improve an image or text model provider integration.
+title: "[Provider]: "
+labels: []
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Provider integrations must preserve credential safety, explicit billing behavior, deterministic tests, and clear capability boundaries. Never paste credentials.
+  - type: input
+    id: provider
+    attributes:
+      label: Provider and product
+      placeholder: Provider name and API or product name
+    validations:
+      required: true
+  - type: input
+    id: docs
+    attributes:
+      label: Official API documentation
+      description: Link to the provider's official integration documentation.
+    validations:
+      required: true
+  - type: textarea
+    id: capability
+    attributes:
+      label: Requested capabilities
+      description: Identify generation, editing, text enhancement, or other operations and required model features.
+    validations:
+      required: true
+  - type: textarea
+    id: auth
+    attributes:
+      label: Authentication and configuration
+      description: Describe credential types and environment variables by name only. Do not provide values.
+    validations:
+      required: true
+  - type: textarea
+    id: models
+    attributes:
+      label: Models, regions, and API versions
+      description: List known identifiers, endpoint constraints, availability, and versioning requirements.
+    validations:
+      required: true
+  - type: textarea
+    id: billing
+    attributes:
+      label: Billing, quotas, and limits
+      description: Explain paid operations, rate limits, concurrency constraints, payload limits, and retry guidance.
+    validations:
+      required: true
+  - type: textarea
+    id: mapping
+    attributes:
+      label: SpriteGameGen integration behavior
+      description: Explain provider selection, fallback behavior, persisted provider identity, and expected errors.
+    validations:
+      required: true
+  - type: textarea
+    id: testing
+    attributes:
+      label: Test strategy
+      description: Explain how automated tests can remain deterministic and credential-free, and how any opt-in live validation would work.
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Safety checks
+      options:
+        - label: I linked official provider documentation.
+          required: true
+        - label: I did not include credentials, tokens, private endpoints, or copied authorization headers.
+          required: true
+        - label: I identified which operations may incur provider charges.
+          required: true

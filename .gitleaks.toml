@@ -1,0 +1,20 @@
+title = "SpriteGameGen secret scanning"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Empty or explicit placeholder values in the committed environment template"
+condition = "AND"
+regexTarget = "line"
+paths = ['''^backend/\.env\.example$''']
+regexes = [
+  '''(?i)^\s*(GOOGLE_CLOUD_PROJECT|AZURE_OPENAI_ENDPOINT|AZURE_OPENAI_API_KEY|AZURE_OPENAI_DEPLOYMENT)=\s*(|example|placeholder|test-only|<[^>]+>)\s*$''',
+]
+
+[[allowlists]]
+description = "Literal non-credential used by one configuration test fixture"
+condition = "AND"
+regexTarget = "line"
+paths = ['''^backend/tests/test_config\.py$''']
+regexes = ['''AZURE_OPENAI_API_KEY=secret''']

@@ -1,0 +1,66 @@
+name: Feature request
+description: Propose a focused improvement to SpriteGameGen.
+title: "[Feature]: "
+labels: []
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the user problem before proposing an implementation. Provider additions should use the provider integration template.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What workflow or user need is not adequately supported?
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+      description: Describe the observable result and who benefits.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed approach
+      description: Explain a possible solution, including UI or API behavior if relevant.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Describe current workarounds or other designs considered.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Primary area
+      options:
+        - Generation workflow
+        - Animation workflow
+        - Export workflow
+        - Frontend experience
+        - Backend API
+        - Image pipeline
+        - MCP server
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: List concrete conditions that would make this feature complete.
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I searched for an existing request covering this need.
+          required: true
+        - label: I have not included credentials, private endpoints, or personal data.
+          required: true

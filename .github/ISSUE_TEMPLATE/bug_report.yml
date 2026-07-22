@@ -1,0 +1,84 @@
+name: Bug report
+description: Report a reproducible defect in SpriteGameGen.
+title: "[Bug]: "
+labels: []
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Do not include credentials or security vulnerabilities. Report vulnerabilities through the Security tab instead.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: Describe what went wrong and the impact.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Provide the smallest deterministic sequence that reproduces the problem.
+      placeholder: |
+        1. Start...
+        2. Select...
+        3. Observe...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include exact redacted errors or logs when available.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected area
+      options:
+        - Backend API
+        - Frontend UI
+        - Image pipeline
+        - Project storage
+        - MCP server
+        - Export
+        - Provider integration
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: Provide a release version or commit hash if known.
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include OS, Python version, Node.js version, browser, and relevant provider without secrets.
+    validations:
+      required: true
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: Add redacted screenshots, sample inputs, or links to related issues.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Safety checks
+      options:
+        - label: I searched for an existing report of this problem.
+          required: true
+        - label: I removed API keys, tokens, service-account data, private endpoints, and personal data.
+          required: true
+        - label: This report does not disclose a security vulnerability.
+          required: true

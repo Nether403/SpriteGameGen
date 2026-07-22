@@ -1,0 +1,83 @@
+name: Output quality report
+description: Report repeatable sprite, animation, pipeline, or export quality problems.
+title: "[Quality]: "
+labels: []
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Output can vary across generative model runs. Provide repeatable, redacted evidence and distinguish provider output from deterministic pipeline behavior.
+  - type: dropdown
+    id: stage
+    attributes:
+      label: Affected stage
+      options:
+        - Base sprite generation
+        - Prompt enhancement
+        - Animation frame generation
+        - Background removal
+        - Pixel-art quantization
+        - Trimming or alignment
+        - Sprite-sheet packing
+        - Atlas metadata
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Quality problem
+      description: Describe the visible defect and why the output is unusable or degraded.
+    validations:
+      required: true
+  - type: textarea
+    id: input
+    attributes:
+      label: Redacted input and settings
+      description: Include a shareable prompt, camera, direction, action, frame count, pixel mode, and other relevant settings.
+    validations:
+      required: true
+  - type: input
+    id: provider
+    attributes:
+      label: Provider and model
+      description: Give the concrete provider and model identifier if known. Do not include endpoints or credentials.
+    validations:
+      required: true
+  - type: textarea
+    id: frequency
+    attributes:
+      label: Reproduction frequency
+      description: State how many runs were attempted and how often the problem occurred. Note that live runs may incur charges.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Output evidence
+      description: Attach safe-to-share images or metadata and identify affected frames. Remove personal or proprietary content.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected quality
+      description: Describe a concrete acceptance threshold or expected visual behavior.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Safety checks
+      options:
+        - label: I have permission to share the prompts and output attached here.
+          required: true
+        - label: I removed credentials, private endpoints, personal data, and proprietary assets.
+          required: true
+        - label: I searched for an existing report with the same quality failure.
+          required: true
