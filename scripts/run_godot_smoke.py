@@ -15,6 +15,14 @@ sys.path.insert(0, str(ROOT / "backend"))
 from app.character_bundle import BundleClip, BundleFrame, _godot_files  # noqa: E402
 
 
+def _run_godot(godot: str, project: Path, *extra: str) -> int:
+    result = subprocess.run(
+        [godot, "--headless", "--path", str(project), *extra],
+        check=False,
+    )
+    return result.returncode
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--godot", default="godot")
@@ -49,18 +57,17 @@ def main() -> int:
             '[application]\nconfig/name="SpriteBundleSmoke"\n[rendering]\nrenderer/rendering_method="gl_compatibility"\n',
             encoding="utf-8",
         )
-        result = subprocess.run(
-            [
-                args.godot,
-                "--headless",
-                "--path",
-                str(project),
-                "--script",
-                str(ROOT / "scripts" / "godot_validate.gd"),
-            ],
-            check=False,
+        # Godot 4 only loads imported textures through ResourceLoader; raw PNGs need
+        # an import pass to generate .import metadata before SpriteFrames resolve.
+        import_code = _run_godot(args.godot, project, "--import")
+        if import_code != 0:
+            return import_code
+        return _run_godot(
+            args.godot,
+            project,
+            "--script",
+            str(ROOT / "scripts" / "godot_validate.gd"),
         )
-        return result.returncode
 
 
 if __name__ == "__main__":
