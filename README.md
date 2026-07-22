@@ -241,6 +241,15 @@ foreign CWD with absolute temporary `SPRITE_ENV_FILE` and `PROJECTS_DIR` values,
 cloud credentials, initializes stdio, asserts the exact tool inventory, calls
 `get_capabilities`, and prints only its parent-process success line.
 
+### Agent skill
+
+A portable Agent Skills-compatible guide is available at
+[`skills/sprite-game-gen/`](skills/sprite-game-gen/). Install that complete directory in
+your agent host's skill path and connect the `sprite-mcp` server. The skill teaches agents
+to discover live capabilities, distinguish billable and destructive operations, preserve
+partial animation results, verify project revisions, and use `sprite://` resources safely.
+Its setup reference includes a client-neutral stdio configuration example.
+
 ## Versioning and releases
 
 The package, project manifest, bundle, action-pack, recipe, and batch-state versions
