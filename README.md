@@ -1,5 +1,8 @@
 # AI Sprite & Game Asset Tool
 
+<img width="1398" height="503" alt="image" src="https://github.com/user-attachments/assets/0d7e2faa-9d93-44f1-bb3f-2f8db24863a7" />
+
+
 A local-first character animation workbench that turns a text prompt (and optional
 reference image) into reusable animation clips and versioned engine-ready bundles.
 Azure GPT Image, Gemini, or an independently operated loopback ComfyUI server can do
@@ -8,8 +11,6 @@ sprite-sheet packing, frame ZIPs, bundle checksums, and Godot resources.
 Side-scroller walks also provide Gemini with deterministic eight-phase pose guides,
 so frames change limb geometry instead of merely restyling the same stance.
 
-See the design spec in [`docs/superpowers/specs/`](docs/superpowers/specs/) and the
-implementation plan in [`docs/superpowers/plans/`](docs/superpowers/plans/).
 
 Licensed under [Apache-2.0](LICENSE). See [CONTRIBUTING.md](CONTRIBUTING.md),
 [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md), and [SECURITY.md](SECURITY.md) before
