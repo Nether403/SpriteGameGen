@@ -108,8 +108,15 @@ export function AnimatePanel() {
   }
 
   return (
-    <section className="panel">
-      <h2>2. Animate</h2>
+    <section className="panel step-panel step-animate">
+      <div className="step-heading">
+        <span className="step-number">02</span>
+        <div>
+          <p className="step-kicker">Give it a rhythm</p>
+          <h2>Animate</h2>
+        </div>
+      </div>
+      <p className="step-intro">Build a named motion clip, then curate every frame before export.</p>
 
       <div className="camera-context">
         <strong>{viewModeLabel(viewMode)} base sprite</strong>

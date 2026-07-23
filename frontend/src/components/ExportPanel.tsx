@@ -90,8 +90,15 @@ export function ExportPanel() {
   }
 
   return (
-    <section className="panel">
-      <h2>3. Export</h2>
+    <section className="panel step-panel step-export">
+      <div className="step-heading">
+        <span className="step-number">03</span>
+        <div>
+          <p className="step-kicker">Ship the result</p>
+          <h2>Export</h2>
+        </div>
+      </div>
+      <p className="step-intro">Pack the finished character for your engine, toolchain, or next experiment.</p>
       <label htmlFor="format">Atlas format</label>
       <select
         id="format"

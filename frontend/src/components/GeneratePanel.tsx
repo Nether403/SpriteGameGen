@@ -93,8 +93,15 @@ export function GeneratePanel() {
   }
 
   return (
-    <section className="panel">
-      <h2>1. Generate</h2>
+    <section className="panel step-panel step-generate">
+      <div className="step-heading">
+        <span className="step-number">01</span>
+        <div>
+          <p className="step-kicker">Create the source</p>
+          <h2>Generate</h2>
+        </div>
+      </div>
+      <p className="step-intro">Describe the character you want to bring into the world.</p>
       <label htmlFor="prompt">Describe your sprite</label>
       <textarea
         id="prompt"
