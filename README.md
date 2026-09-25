@@ -12,6 +12,7 @@ Side-scroller walks also provide Gemini with deterministic eight-phase pose guid
 so frames change limb geometry instead of merely restyling the same stance.
 
 
+
 Licensed under [Apache-2.0](LICENSE). See [CONTRIBUTING.md](CONTRIBUTING.md),
 [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md), and [SECURITY.md](SECURITY.md) before
 contributing or reporting a vulnerability.
