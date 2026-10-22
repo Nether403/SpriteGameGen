@@ -35,7 +35,7 @@ uv run pytest -q
 uv run uvicorn app.main:app --reload
 ```
 
-### Environment / auth
+### Environment/auth
 
 This project authenticates to Gemini through **Vertex AI (Google Agent Platform)** using
 a service-account JSON key — not a `GEMINI_API_KEY`. Set in `.env`:
